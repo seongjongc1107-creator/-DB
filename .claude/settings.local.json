@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ln -sf \"../../NAVDATA \\(1\\).csv\" \"/Users/choisungjong/Downloads/비행계획 항로 DB/backend/data/NAVDATA.csv\")",
+      "Bash(ln -sf \"../../Navblue_Route \\(1\\).csv\" \"/Users/choisungjong/Downloads/비행계획 항로 DB/backend/data/Navblue_Route.csv\")",
+      "Bash(npm install *)",
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -c \"from app.data_loader import store; store.load\\(\\); print\\('OK routes:', len\\(store.routes\\), 'airports:', len\\(store.airports\\), 'fix_lookup:', len\\(store.fix_lookup\\)\\)\")",
+      "Bash(uvicorn app.main:app --port 8000)",
+      "Bash(curl -s http://localhost:8000/api/health)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s \"http://localhost:8000/api/search?q=A582\")",
+      "Bash(curl -s \"http://localhost:8000/api/routes?fix=A582\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('Routes using A582:', d['count']\\)\")",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(open *)",
+      "Bash(python3 *)",
+      "Bash(curl -s \"http://localhost:8000/api/navdata/airways/A582\")",
+      "Bash(echo \"Backend PID: $!\")",
+      "Bash(npx tsc *)",
+      "Bash(curl -s \"http://localhost:8000/api/routes/geometry?fix=A582\")",
+      "Bash(curl -s \"http://localhost:8000/api/navdata/airways/A582/routes\")",
+      "Bash(curl -s \"http://localhost:5173\")",
+      "Bash(curl -s \"http://localhost:8000/api/routes?fix=MINTO\")",
+      "Bash(curl -s \"http://localhost:8000/api/routes?fix=OPOSI\")",
+      "Read(//private/tmp/**)",
+      "Bash(curl -s http://127.0.0.1:8000/api/typhoon/active)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://www.gdacs.org/gdacsapi/api/events/geteventlist?eventtype=TC\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://www.gdacs.org/xml/rss.xml\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://www.nhc.noaa.gov/CurrentStorms.json\")",
+      "Bash(curl -s \"https://www.gdacs.org/xml/rss.xml\")",
+      "Bash(curl -s http://127.0.0.1:8000/api/typhoon/mock)",
+      "Bash(curl -s \"http://127.0.0.1:8000/api/routes/alternatives?od_pairs=RKSI-RCTP&exclude_ids=1\")",
+      "Bash(curl -s \"http://127.0.0.1:8000/api/navdata/fir\")"
+    ]
+  }
+}
