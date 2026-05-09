@@ -1,12 +1,17 @@
 from contextlib import asynccontextmanager
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from .data_loader import store
 from .routers import routes, navdata, search, typhoon
+
+STATIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
 
 
 @asynccontextmanager
@@ -36,3 +41,7 @@ app.include_router(typhoon.router, prefix="/api/typhoon", tags=["typhoon"])
 def health():
     return {"status": "ok", "loaded": store.loaded,
             "routes": len(store.routes), "airports": len(store.airports)}
+
+
+if STATIC_DIR.exists():
+    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
