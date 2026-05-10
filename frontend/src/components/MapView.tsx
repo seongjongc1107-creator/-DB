@@ -126,35 +126,32 @@ export default function MapView() {
 
   const airwayData = state.airwayGeoJSON ?? EMPTY_FC
 
-  // Airway 레이어 — 직접 MapLibre API로 관리
+  // Airway 레이어 — 데이터 + 가시성을 하나의 effect에서 관리
   useEffect(() => {
     if (!mapLoaded) return
     const map = mapRef.current?.getMap()
     if (!map) return
     const data = airwayData as any
+    const vis = state.layers.activeAirway ? 'visible' : 'none'
+
     if (!map.getSource('airway-direct')) {
       map.addSource('airway-direct', { type: 'geojson', data })
       map.addLayer({ id: 'airway-d-casing', type: 'line', source: 'airway-direct',
+        layout: { visibility: vis },
         paint: { 'line-color': '#ffffff', 'line-width': 10, 'line-opacity': 0.5 } })
       map.addLayer({ id: 'airway-d-line', type: 'line', source: 'airway-direct',
+        layout: { visibility: vis },
         paint: { 'line-color': '#FBBF24', 'line-width': 5, 'line-opacity': 1 } })
       map.addLayer({ id: 'airway-d-label', type: 'symbol', source: 'airway-direct',
-        layout: { 'text-field': ['get', 'airway'], 'text-size': 12, 'symbol-placement': 'line-center' },
+        layout: { visibility: vis, 'text-field': ['get', 'airway'], 'text-size': 12, 'symbol-placement': 'line-center' },
         paint: { 'text-color': '#FBBF24', 'text-halo-color': '#1a1a1a', 'text-halo-width': 2 } })
     } else {
       ;(map.getSource('airway-direct') as any).setData(data)
+      ;['airway-d-casing', 'airway-d-line', 'airway-d-label'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
+      })
     }
-  }, [mapLoaded, airwayData])
-
-  useEffect(() => {
-    if (!mapLoaded) return
-    const map = mapRef.current?.getMap()
-    if (!map) return
-    const vis = state.layers.activeAirway ? 'visible' : 'none'
-    ;['airway-d-casing', 'airway-d-line', 'airway-d-label'].forEach(id => {
-      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
-    })
-  }, [mapLoaded, state.layers.activeAirway])
+  }, [mapLoaded, airwayData, state.layers.activeAirway])
 
   // ── FlyTo effect ─────────────────────────────────────────────────
   useEffect(() => {
@@ -171,10 +168,12 @@ export default function MapView() {
 
   // ── FitBounds effect (airway 전체 범위 표시) ──────────────────────
   useEffect(() => {
-    if (!state.pendingFitBounds || !mapLoaded) return
-    const map = mapRef.current?.getMap()
-    if (!map) return
-    map.fitBounds(state.pendingFitBounds as [number, number, number, number] | [[number, number], [number, number]], { padding: 100, duration: 1200 })
+    if (!state.pendingFitBounds || !mapLoaded || !mapRef.current) return
+    const bounds = state.pendingFitBounds
+    mapRef.current.fitBounds(
+      [bounds[0][0], bounds[0][1], bounds[1][0], bounds[1][1]],
+      { padding: 100, duration: 1200 },
+    )
     dispatch({ type: 'SET_FIT_BOUNDS', payload: null })
   }, [state.pendingFitBounds, dispatch, mapLoaded])
 
