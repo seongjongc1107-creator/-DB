@@ -101,6 +101,9 @@ export interface AppState {
   // UI
   searchResults: SearchResult[]
   isLoading: boolean
+  // Multi-search highlights
+  highlightPoints: SearchResult[]
+  pendingFlyTo: { lon: number; lat: number; zoom?: number } | null
 }
 
 export type AppAction =
@@ -128,3 +131,10 @@ export type AppAction =
   | { type: 'SET_TYPHOON_TRACK_STEP'; payload: number }
   | { type: 'SET_ALT_ROUTE_MODE'; payload: boolean }
   | { type: 'SET_FIR_GEOJSON'; payload: GeoJSONFeatureCollection | null }
+  | { type: 'ADD_HIGHLIGHT'; payload: SearchResult }
+  | { type: 'REMOVE_HIGHLIGHT'; payload: string }
+  | { type: 'CLEAR_HIGHLIGHTS' }
+  | { type: 'SET_FLY_TO'; payload: { lon: number; lat: number; zoom?: number } | null }
+  | { type: 'MERGE_AIRWAY_GEOJSON'; payload: GeoJSONFeatureCollection }
+  | { type: 'MERGE_MATCHED_ROUTES_GEOJSON'; payload: GeoJSONFeatureCollection }
+  | { type: 'MERGE_ALL_ROUTES'; payload: RouteMeta[] }

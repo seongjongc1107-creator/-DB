@@ -36,7 +36,8 @@
       "Bash(curl -s \"http://127.0.0.1:8000/api/routes/alternatives?od_pairs=RKSI-RCTP&exclude_ids=1\")",
       "Bash(curl -s \"http://127.0.0.1:8000/api/navdata/fir\")",
       "Bash(curl -s http://localhost:8000/api/routes/origins)",
-      "Bash(chmod +x *)"
+      "Bash(chmod +x *)",
+      "Bash(xargs cat)"
     ]
   }
 }

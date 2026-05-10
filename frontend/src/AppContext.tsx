@@ -33,6 +33,8 @@ const initialState: AppState = {
   typhoonTrackStep: 0,
   searchResults: [],
   isLoading: false,
+  highlightPoints: [],
+  pendingFlyTo: null,
 }
 
 function reducer(state: AppState, action: AppAction): AppState {
@@ -106,6 +108,46 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, firGeoJSON: action.payload }
     case 'SET_ALT_ROUTE_MODE':
       return { ...state, altRouteMode: action.payload }
+    case 'ADD_HIGHLIGHT':
+      return {
+        ...state,
+        highlightPoints: [
+          ...state.highlightPoints.filter(p => p.id !== action.payload.id),
+          action.payload,
+        ],
+      }
+    case 'REMOVE_HIGHLIGHT':
+      return { ...state, highlightPoints: state.highlightPoints.filter(p => p.id !== action.payload) }
+    case 'CLEAR_HIGHLIGHTS':
+      return { ...state, highlightPoints: [], pendingFlyTo: null }
+    case 'SET_FLY_TO':
+      return { ...state, pendingFlyTo: action.payload }
+    case 'MERGE_AIRWAY_GEOJSON': {
+      const existing = state.airwayGeoJSON?.features ?? []
+      return {
+        ...state,
+        airwayGeoJSON: {
+          type: 'FeatureCollection',
+          features: [...existing, ...action.payload.features],
+        },
+      }
+    }
+    case 'MERGE_MATCHED_ROUTES_GEOJSON': {
+      const existingIds = new Set(state.matchedRoutesGeoJSON?.features.map(f => f.properties?.id))
+      const newFeatures = action.payload.features.filter(f => !existingIds.has(f.properties?.id))
+      return {
+        ...state,
+        matchedRoutesGeoJSON: {
+          type: 'FeatureCollection',
+          features: [...(state.matchedRoutesGeoJSON?.features ?? []), ...newFeatures],
+        },
+      }
+    }
+    case 'MERGE_ALL_ROUTES': {
+      const existingIds = new Set(state.allRoutes.map(r => r.id))
+      const newRoutes = action.payload.filter(r => !existingIds.has(r.id))
+      return { ...state, allRoutes: [...state.allRoutes, ...newRoutes] }
+    }
     default:
       return state
   }

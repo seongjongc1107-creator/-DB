@@ -124,6 +124,29 @@ export default function MapView() {
     setMousePos(null)
   }, [])
 
+  // ── FlyTo effect ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!state.pendingFlyTo || !mapRef.current) return
+    mapRef.current.flyTo({
+      center: [state.pendingFlyTo.lon, state.pendingFlyTo.lat],
+      zoom: state.pendingFlyTo.zoom ?? 8,
+      duration: 1000,
+    })
+    dispatch({ type: 'SET_FLY_TO', payload: null })
+  }, [state.pendingFlyTo, dispatch])
+
+  // ── Highlight points GeoJSON ─────────────────────────────────────
+  const highlightData = useMemo(() => {
+    const features = state.highlightPoints
+      .filter(p => p.lat !== null && p.lon !== null)
+      .map(p => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [p.lon!, p.lat!] },
+        properties: { id: p.id, itemType: p.type, name: p.name },
+      }))
+    return { type: 'FeatureCollection' as const, features }
+  }, [state.highlightPoints])
+
   // ── Base data ────────────────────────────────────────────────────
   const routeData = state.routeGeoJSON ?? EMPTY_FC
   const airportsData = state.airportsGeoJSON ?? EMPTY_FC
@@ -531,6 +554,60 @@ export default function MapView() {
             id="spatial-outline"
             type="line"
             paint={{ 'line-color': '#A855F7', 'line-width': 2, 'line-dasharray': [4, 2] }}
+          />
+        </Source>
+
+        {/* ── Search highlights (selected airports / waypoints) ─────── */}
+        <Source id="highlights" type="geojson" data={highlightData}>
+          <Layer
+            id="highlights-halo"
+            type="circle"
+            paint={{
+              'circle-radius': 16,
+              'circle-color': [
+                'match', ['get', 'itemType'],
+                'airport', '#F97316',
+                'waypoint', '#06B6D4',
+                '#A855F7',
+              ],
+              'circle-opacity': 0.2,
+              'circle-blur': 0.5,
+            }}
+          />
+          <Layer
+            id="highlights-circle"
+            type="circle"
+            paint={{
+              'circle-radius': 9,
+              'circle-color': [
+                'match', ['get', 'itemType'],
+                'airport', '#F97316',
+                'waypoint', '#06B6D4',
+                '#A855F7',
+              ],
+              'circle-stroke-color': '#ffffff',
+              'circle-stroke-width': 2.5,
+            }}
+          />
+          <Layer
+            id="highlights-label"
+            type="symbol"
+            layout={{
+              'text-field': ['get', 'name'],
+              'text-size': 11,
+              'text-offset': [0, 1.6],
+              'text-anchor': 'top',
+            }}
+            paint={{
+              'text-color': [
+                'match', ['get', 'itemType'],
+                'airport', '#F97316',
+                'waypoint', '#06B6D4',
+                '#A855F7',
+              ],
+              'text-halo-color': '#111827',
+              'text-halo-width': 2,
+            }}
           />
         </Source>
 

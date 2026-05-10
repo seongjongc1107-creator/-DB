@@ -1,17 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Search, X, Route, Building2, MapPin } from 'lucide-react'
+import * as turf from '@turf/turf'
 import { api } from '../api/client'
 import { useApp } from '../AppContext'
 import type { SearchResult } from '../types'
 
-const TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: string; textColor: string }> = {
-  airway:  { label: 'AWY', icon: <Route size={10} />,     color: 'bg-orange-900/60',  textColor: 'text-orange-300' },
-  airport: { label: 'APT', icon: <Building2 size={10} />, color: 'bg-red-900/60',     textColor: 'text-red-300'    },
-  waypoint:{ label: 'WPT', icon: <MapPin size={10} />,    color: 'bg-gray-700/80',    textColor: 'text-gray-300'   },
+const TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: string; textColor: string; chipColor: string }> = {
+  airway:  { label: 'AWY', icon: <Route size={10} />,     color: 'bg-orange-900/60',  textColor: 'text-orange-300', chipColor: 'bg-orange-900/40 border-orange-700 text-orange-300' },
+  airport: { label: 'APT', icon: <Building2 size={10} />, color: 'bg-red-900/60',     textColor: 'text-red-300',    chipColor: 'bg-red-900/40 border-red-700 text-red-300'    },
+  waypoint:{ label: 'WPT', icon: <MapPin size={10} />,    color: 'bg-gray-700/80',    textColor: 'text-gray-300',   chipColor: 'bg-cyan-900/40 border-cyan-700 text-cyan-300'   },
 }
 
 export default function SearchBar() {
-  const { dispatch } = useApp()
+  const { state, dispatch } = useApp()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [open, setOpen] = useState(false)
@@ -49,7 +50,9 @@ export default function SearchBar() {
 
   async function onSelect(result: SearchResult) {
     setOpen(false)
-    setQuery(result.name)
+    setQuery('')
+
+    dispatch({ type: 'ADD_HIGHLIGHT', payload: result })
 
     if (result.type === 'airway') {
       dispatch({ type: 'SET_LOADING', payload: true })
@@ -60,10 +63,15 @@ export default function SearchBar() {
           api.routes.geometry({ fix: result.id }),
         ])
         dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: result.id })
-        dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: airwayGeoJSON })
-        dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: matchedGeoJSON })
-        dispatch({ type: 'SET_ALL_ROUTES', payload: routeData.routes })
-        dispatch({ type: 'SET_SELECTED_ROUTES', payload: routeData.routes.map(r => r.id) })
+        dispatch({ type: 'MERGE_AIRWAY_GEOJSON', payload: airwayGeoJSON })
+        dispatch({ type: 'MERGE_MATCHED_ROUTES_GEOJSON', payload: matchedGeoJSON })
+        dispatch({ type: 'MERGE_ALL_ROUTES', payload: routeData.routes })
+
+        try {
+          const center = turf.center(airwayGeoJSON as any)
+          const [lon, lat] = center.geometry.coordinates
+          dispatch({ type: 'SET_FLY_TO', payload: { lon, lat, zoom: 6 } })
+        } catch {}
       } finally {
         dispatch({ type: 'SET_LOADING', payload: false })
       }
@@ -77,9 +85,12 @@ export default function SearchBar() {
           api.routes.geometry({ fix: result.id }),
         ])
         dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: result.id })
-        dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: matchedGeoJSON })
-        dispatch({ type: 'SET_ALL_ROUTES', payload: routeData.routes })
-        dispatch({ type: 'SET_SELECTED_ROUTES', payload: routeData.routes.map(r => r.id) })
+        dispatch({ type: 'MERGE_MATCHED_ROUTES_GEOJSON', payload: matchedGeoJSON })
+        dispatch({ type: 'MERGE_ALL_ROUTES', payload: routeData.routes })
+
+        if (result.lat !== null && result.lon !== null) {
+          dispatch({ type: 'SET_FLY_TO', payload: { lon: result.lon, lat: result.lat, zoom: 9 } })
+        }
       } finally {
         dispatch({ type: 'SET_LOADING', payload: false })
       }
@@ -87,21 +98,30 @@ export default function SearchBar() {
 
     if (result.type === 'airport') {
       dispatch({ type: 'SET_ORIGIN', payload: result.id })
+      if (result.lat !== null && result.lon !== null) {
+        dispatch({ type: 'SET_FLY_TO', payload: { lon: result.lon, lat: result.lat, zoom: 8 } })
+      }
     }
+  }
+
+  function removeHighlight(id: string) {
+    dispatch({ type: 'REMOVE_HIGHLIGHT', payload: id })
   }
 
   function clear() {
     setQuery('')
     setResults([])
+    dispatch({ type: 'CLEAR_HIGHLIGHTS' })
     dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
     dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
     dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: null })
     dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: null })
   }
 
+  const highlights = state.highlightPoints
+
   return (
     <div ref={containerRef} className="relative">
-      {/* Label */}
       <p className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold mb-1.5">
         Airway · Airport · Waypoint
       </p>
@@ -119,23 +139,50 @@ export default function SearchBar() {
           onFocus={() => { setFocused(true); results.length > 0 && setOpen(true) }}
           onBlur={() => setFocused(false)}
         />
-        {query && (
+        {(query || highlights.length > 0) && (
           <button onClick={clear} className="text-gray-600 hover:text-gray-300 transition-colors shrink-0">
             <X size={13} />
           </button>
         )}
       </div>
 
+      {/* Selected chips */}
+      {highlights.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {highlights.map(h => {
+            const meta = TYPE_META[h.type]
+            return (
+              <span
+                key={`${h.type}-${h.id}`}
+                className={`flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${meta.chipColor}`}
+              >
+                {meta.icon}
+                {h.name}
+                <button
+                  onClick={() => removeHighlight(h.id)}
+                  className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
+                >
+                  <X size={9} />
+                </button>
+              </span>
+            )
+          })}
+        </div>
+      )}
+
       {/* Dropdown */}
       {open && results.length > 0 && (
         <div className="absolute top-full mt-1 left-0 right-0 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden max-h-64 overflow-y-auto">
           {results.map(r => {
             const meta = TYPE_META[r.type]
+            const alreadySelected = highlights.some(h => h.id === r.id)
             return (
               <button
                 key={`${r.type}-${r.id}`}
-                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-800 text-left transition-colors border-b border-gray-800 last:border-0"
-                onClick={() => onSelect(r)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-gray-800 last:border-0 ${
+                  alreadySelected ? 'bg-gray-800/60 opacity-60' : 'hover:bg-gray-800'
+                }`}
+                onClick={() => !alreadySelected && onSelect(r)}
               >
                 <span className={`flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${meta.color} ${meta.textColor}`}>
                   {meta.icon}{meta.label}
@@ -146,6 +193,7 @@ export default function SearchBar() {
                     <div className="text-xs text-gray-500 truncate mt-0.5">{r.description}</div>
                   )}
                 </div>
+                {alreadySelected && <span className="text-[10px] text-gray-600 shrink-0">선택됨</span>}
               </button>
             )
           })}
