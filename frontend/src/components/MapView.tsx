@@ -316,6 +316,17 @@ export default function MapView() {
     return { type: 'FeatureCollection' as const, features }
   }, [state.altRouteMode, spatialRoutesData, state.matchedRoutesGeoJSON, selectedIds, routeData])
 
+  // ── Selected route highlight (클릭한 항로만 주황색으로 강조) ──
+  const selectedRouteHighlightData = useMemo(() => {
+    if (selectedIds.length === 0) return EMPTY_FC
+    const idSet = new Set(selectedIds)
+    const pool = state.matchedRoutesGeoJSON ?? spatialRoutesData ?? routeData
+    return {
+      type: 'FeatureCollection' as const,
+      features: pool.features.filter(f => idSet.has(f.properties?.id as number)),
+    }
+  }, [selectedIds, state.matchedRoutesGeoJSON, spatialRoutesData, routeData])
+
   const inDrawMode = state.spatialMode !== null
 
   return (
@@ -326,7 +337,7 @@ export default function MapView() {
         initialViewState={{ longitude: 127, latitude: 35, zoom: 4 }}
         style={{ width: '100%', height: '100%' }}
         interactiveLayerIds={
-          inDrawMode ? [] : ['routes-line', 'airports-circle', 'airway-line', 'searched-routes-line']
+          inDrawMode ? [] : ['routes-line', 'airports-circle', 'airway-line', 'searched-routes-line', 'selected-route-line']
         }
         onClick={onClick}
         onMouseMove={onMouseMove}
@@ -444,6 +455,20 @@ export default function MapView() {
               'line-width': 2.5,
               'line-opacity': 0.9,
             }}
+          />
+        </Source>
+
+        {/* ── 선택된 항로 강조 (주황 실선, 초록 위) ───────────────── */}
+        <Source id="selected-route" type="geojson" data={selectedRouteHighlightData}>
+          <Layer
+            id="selected-route-casing"
+            type="line"
+            paint={{ 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.7 }}
+          />
+          <Layer
+            id="selected-route-line"
+            type="line"
+            paint={{ 'line-color': '#F97316', 'line-width': 4, 'line-opacity': 1 }}
           />
         </Source>
 
