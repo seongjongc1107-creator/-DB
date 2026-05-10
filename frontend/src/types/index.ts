@@ -56,6 +56,8 @@ export interface Typhoon {
 export interface TyphoonTrackPoint extends Typhoon {
   step: number
   time: string
+  is_forecast?: boolean
+  pressure_hpa?: number | null
 }
 
 export interface LayerState {

@@ -1,4 +1,5 @@
 import re
+from datetime import datetime, timezone
 import xml.etree.ElementTree as ET
 import httpx
 from fastapi import APIRouter
@@ -51,6 +52,29 @@ def _intensity_to_alert(label: str) -> tuple[str, float]:
     if u in ("TS", "STS"):
         return "Orange", 45.0
     return "Green", 25.0  # TD / LO
+
+
+def _wind_to_pressure(wind_kt: float) -> int:
+    """풍속(kt)으로 중심기압(hPa) 추정 — NWPac Atkinson-Holliday 관계식 기반 룩업"""
+    if wind_kt <= 25:  return 1005
+    if wind_kt <= 33:  return 1000
+    if wind_kt <= 47:  return 993
+    if wind_kt <= 63:  return 980
+    if wind_kt <= 79:  return 963
+    if wind_kt <= 99:  return 944
+    if wind_kt <= 119: return 921
+    return 898
+
+
+def _parse_label_dt(label: str, year: int) -> datetime | None:
+    """'DD/MM HH:MM UTC' → datetime(UTC). 연도는 컨텍스트에서 주입."""
+    try:
+        parts = label.split()
+        d, m = parts[0].split("/")
+        h, mi = parts[1].split(":")
+        return datetime(year, int(m), int(d), int(h), int(mi), tzinfo=timezone.utc)
+    except Exception:
+        return None
 
 
 def _parse_item(item: ET.Element) -> dict | None:
@@ -152,6 +176,19 @@ async def get_typhoon_track(event_id: int):
 
     features = geo_data.get("features", [])
 
+    # 분석 기준 시각 (polygondate) — is_forecast 판별에 사용
+    analysis_dt: datetime | None = None
+    for f in features:
+        pd = f.get("properties", {}).get("polygondate", "")
+        if pd:
+            try:
+                analysis_dt = datetime.fromisoformat(pd).replace(tzinfo=timezone.utc)
+                break
+            except Exception:
+                pass
+    if analysis_dt is None:
+        analysis_dt = datetime.now(timezone.utc)
+
     # coord → 강도 레이블 맵 (Line_Line 피처에서 추출)
     intensity_map: dict[tuple[float, float], str] = {}
     for f in features:
@@ -177,6 +214,10 @@ async def get_typhoon_track(event_id: int):
 
         time_label = f["properties"].get("polygonlabel", f"Step {step}")
 
+        # 예보 여부 판별
+        pt_dt = _parse_label_dt(time_label, analysis_dt.year)
+        is_forecast = pt_dt is not None and pt_dt > analysis_dt
+
         # 인근 Line_Line 에서 강도 룩업
         intensity = "TD"
         for (mlon, mlat), lbl in intensity_map.items():
@@ -186,6 +227,7 @@ async def get_typhoon_track(event_id: int):
 
         alert, wind_kt = _intensity_to_alert(intensity)
         radius_nm = _wind_to_radius(wind_kt)
+        pressure_hpa = _wind_to_pressure(wind_kt)
         track.append({
             "step": step,
             "time": time_label,
@@ -196,6 +238,8 @@ async def get_typhoon_track(event_id: int):
             "wind_kt": wind_kt,
             "alert": alert,
             "radius_nm": radius_nm,
+            "pressure_hpa": pressure_hpa,
+            "is_forecast": is_forecast,
             "color": ALERT_COLOR.get(alert, "#FCD34D"),
         })
 

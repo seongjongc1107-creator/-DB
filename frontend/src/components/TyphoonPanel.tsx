@@ -224,14 +224,22 @@ function TrackPlayer({
 
       {/* Current step info */}
       <div className="text-[11px] opacity-80 space-y-0.5 font-mono">
-        <div className="font-semibold text-xs not-italic">{pt.time}</div>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-xs not-italic">{pt.time}</span>
+          {pt.is_forecast && (
+            <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-orange-500/30 text-orange-300 border border-orange-600 not-italic">예보</span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <MapPin size={10} />
           {pt.lat.toFixed(1)}°N {pt.lon.toFixed(1)}°E
         </div>
-        <div className="flex gap-3">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
           <span>풍속 {pt.wind_kt} kt</span>
           <span>반경 {pt.radius_nm} NM</span>
+          <span>기압 {pt.pressure_hpa != null ? `${pt.pressure_hpa} hPa` : 'N/A'}
+            {pt.pressure_hpa != null && <span className="opacity-50 text-[9px] ml-0.5">(추정)</span>}
+          </span>
         </div>
       </div>
 
@@ -260,15 +268,19 @@ function TrackPlayer({
           <button
             key={i}
             onClick={() => onStepChange(i)}
-            title={p.time}
-            className={`w-2 h-2 rounded-full transition-all ${
+            title={`${p.time}${p.is_forecast ? ' (예보)' : ''}`}
+            className={`rounded-full transition-all ${
               i === step
-                ? 'scale-150 bg-white'
+                ? 'scale-150'
                 : i < step
-                  ? 'opacity-60'
-                  : 'opacity-30'
-            }`}
-            style={{ backgroundColor: i === step ? '#fff' : SLIDER_TRACK_COLOR[p.alert] }}
+                  ? 'opacity-70'
+                  : 'opacity-35'
+            } ${p.is_forecast ? 'ring-1 ring-orange-400' : ''}`}
+            style={{
+              width: i === step ? 8 : 6,
+              height: i === step ? 8 : 6,
+              backgroundColor: i === step ? '#fff' : SLIDER_TRACK_COLOR[p.alert],
+            }}
           />
         ))}
       </div>

@@ -188,24 +188,39 @@ export default function MapView() {
     const track = state.typhoonTrack
     if (!track || track.length < 2) return EMPTY_FC
     const step = state.typhoonTrackStep
+
+    const histPts = track.filter(p => !p.is_forecast)
+    const fcstPts = track.filter(p => p.is_forecast)
+    // 예보선은 마지막 실측 포인트에서 시작해 연결
+    const lastHist = histPts[histPts.length - 1]
+    const fcstCoords = lastHist && fcstPts.length > 0
+      ? [[lastHist.lon, lastHist.lat], ...fcstPts.map(p => [p.lon, p.lat])]
+      : fcstPts.map(p => [p.lon, p.lat])
+
     const features: object[] = [
-      // full path (faint)
-      {
+      // 실측 항적 (solid gray)
+      ...(histPts.length >= 2 ? [{
         type: 'Feature',
-        geometry: { type: 'LineString', coordinates: track.map(p => [p.lon, p.lat]) },
-        properties: { kind: 'full' },
-      },
-      // past path (solid)
+        geometry: { type: 'LineString', coordinates: histPts.map(p => [p.lon, p.lat]) },
+        properties: { kind: 'hist' },
+      }] : []),
+      // 예보 항적 (dashed orange)
+      ...(fcstCoords.length >= 2 ? [{
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: fcstCoords },
+        properties: { kind: 'fcst' },
+      }] : []),
+      // 슬라이더 현재 위치까지 흰 선 강조
       ...(step > 0 ? [{
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: track.slice(0, step + 1).map(p => [p.lon, p.lat]) },
         properties: { kind: 'past' },
       }] : []),
-      // all track dots
+      // 모든 위치 점
       ...track.map((p, i) => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-        properties: { kind: 'dot', past: i <= step, current: i === step, color: p.color },
+        properties: { kind: 'dot', past: i <= step, current: i === step, color: p.color, forecast: p.is_forecast ?? false },
       })),
     ]
     return { type: 'FeatureCollection' as const, features: features as any[] }
@@ -539,31 +554,42 @@ export default function MapView() {
 
         {/* ── Typhoon track path ──────────────────────────────────── */}
         <Source id="typhoon-track" type="geojson" data={typhoonTrackData}>
+          {/* 실측 항적 — 회색 실선 */}
           <Layer
-            id="typhoon-track-full"
+            id="typhoon-track-hist"
             type="line"
-            filter={['==', ['get', 'kind'], 'full']}
+            filter={['==', ['get', 'kind'], 'hist']}
             layout={{ visibility: state.layers.typhoon ? 'visible' : 'none' }}
-            paint={{ 'line-color': '#6B7280', 'line-width': 1.5, 'line-dasharray': [3, 3] }}
+            paint={{ 'line-color': '#9CA3AF', 'line-width': 2, 'line-opacity': 0.8 }}
           />
+          {/* 예보 항적 — 주황 점선 */}
+          <Layer
+            id="typhoon-track-fcst"
+            type="line"
+            filter={['==', ['get', 'kind'], 'fcst']}
+            layout={{ visibility: state.layers.typhoon ? 'visible' : 'none' }}
+            paint={{ 'line-color': '#FB923C', 'line-width': 2.5, 'line-dasharray': [6, 3] }}
+          />
+          {/* 슬라이더 강조 — 흰 반투명 선 */}
           <Layer
             id="typhoon-track-past"
             type="line"
             filter={['==', ['get', 'kind'], 'past']}
             layout={{ visibility: state.layers.typhoon ? 'visible' : 'none' }}
-            paint={{ 'line-color': '#fff', 'line-width': 2, 'line-opacity': 0.6 }}
+            paint={{ 'line-color': '#fff', 'line-width': 2.5, 'line-opacity': 0.5 }}
           />
+          {/* 위치 점 — 예보는 반투명 */}
           <Layer
             id="typhoon-track-dots"
             type="circle"
             filter={['==', ['get', 'kind'], 'dot']}
             layout={{ visibility: state.layers.typhoon ? 'visible' : 'none' }}
             paint={{
-              'circle-radius': ['case', ['get', 'current'], 5, 3],
+              'circle-radius': ['case', ['get', 'current'], 6, ['get', 'forecast'], 4, 4],
               'circle-color': ['get', 'color'],
-              'circle-opacity': ['case', ['get', 'past'], 1, 0.35],
+              'circle-opacity': ['case', ['get', 'forecast'], 0.55, ['case', ['get', 'past'], 1, 0.4]],
               'circle-stroke-color': '#fff',
-              'circle-stroke-width': ['case', ['get', 'current'], 2, 0],
+              'circle-stroke-width': ['case', ['get', 'current'], 2, ['get', 'forecast'], 1, 0],
             }}
           />
         </Source>
