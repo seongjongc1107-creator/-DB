@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Wind, RefreshCw, MapPin, AlertTriangle, FlaskConical, Play, Pause, X } from 'lucide-react'
+import { Wind, RefreshCw, MapPin, AlertTriangle, FlaskConical, Play, Pause, X, Route } from 'lucide-react'
 import * as turf from '@turf/turf'
 import { api } from '../api/client'
 import { useApp } from '../AppContext'
@@ -35,6 +35,7 @@ export default function TyphoonPanel() {
   const [error, setError] = useState<string | null>(null)
   const [fetched, setFetched] = useState(false)
   const [playing, setPlaying] = useState(false)
+  const [trackLoading, setTrackLoading] = useState<string | null>(null)
 
   // Auto-apply spatial filter whenever track step changes
   useEffect(() => {
@@ -79,6 +80,22 @@ export default function TyphoonPanel() {
       dispatch({ type: 'SET_TYPHOON_TRACK', payload: data.track })
     } catch {
       setError('Mock 데이터 로드 실패')
+    }
+  }
+
+  async function loadTrack(eventId: string) {
+    setError(null)
+    setPlaying(false)
+    setTrackLoading(eventId)
+    try {
+      const data = await api.typhoon.track(eventId)
+      if (data.error) { setError(`트랙 오류: ${data.error}`); return }
+      if (!data.track || data.track.length === 0) { setError('트랙 데이터 없음'); return }
+      dispatch({ type: 'SET_TYPHOON_TRACK', payload: data.track })
+    } catch {
+      setError('트랙 데이터를 가져오지 못했습니다.')
+    } finally {
+      setTrackLoading(null)
     }
   }
 
@@ -141,9 +158,13 @@ export default function TyphoonPanel() {
       {!track && state.typhoons.length > 0 && (
         <div className="space-y-2">
           {state.typhoons.map(t => (
-            <TyphoonCard key={t.id} typhoon={t} onApply={() =>
-              dispatch({ type: 'SET_SPATIAL_FILTER', payload: makeFilter(t) })
-            } />
+            <TyphoonCard
+              key={t.id}
+              typhoon={t}
+              trackLoading={trackLoading === t.id}
+              onApply={() => dispatch({ type: 'SET_SPATIAL_FILTER', payload: makeFilter(t) })}
+              onTrack={() => loadTrack(t.id)}
+            />
           ))}
           <p className="text-[11px] text-gray-600 text-center">출처: GDACS (JTWC 포함)</p>
         </div>
@@ -259,7 +280,12 @@ function TrackPlayer({
 
 // ── Live typhoon card ─────────────────────────────────────────────────────────
 
-function TyphoonCard({ typhoon: t, onApply }: { typhoon: Typhoon; onApply: () => void }) {
+function TyphoonCard({ typhoon: t, trackLoading, onApply, onTrack }: {
+  typhoon: Typhoon
+  trackLoading: boolean
+  onApply: () => void
+  onTrack: () => void
+}) {
   const alertCls = ALERT_CLASS[t.alert] ?? ALERT_CLASS.Orange
   return (
     <div className={`rounded-lg border p-2.5 space-y-2 ${alertCls}`}>
@@ -280,12 +306,22 @@ function TyphoonCard({ typhoon: t, onApply }: { typhoon: Typhoon; onApply: () =>
           <span>경보반경 {t.radius_nm} NM</span>
         </div>
       </div>
-      <button
-        onClick={onApply}
-        className="w-full text-[11px] font-semibold py-1 rounded bg-white/10 hover:bg-white/20 transition-colors"
-      >
-        이 태풍을 영역 필터로 적용
-      </button>
+      <div className="flex gap-1.5">
+        <button
+          onClick={onApply}
+          className="flex-1 text-[11px] font-semibold py-1 rounded bg-white/10 hover:bg-white/20 transition-colors"
+        >
+          영역 필터 적용
+        </button>
+        <button
+          onClick={onTrack}
+          disabled={trackLoading}
+          className="flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold py-1 rounded bg-white/10 hover:bg-white/20 disabled:opacity-50 transition-colors"
+        >
+          <Route size={10} className={trackLoading ? 'animate-spin' : ''} />
+          {trackLoading ? '로딩 중…' : '예보 트랙'}
+        </button>
+      </div>
     </div>
   )
 }

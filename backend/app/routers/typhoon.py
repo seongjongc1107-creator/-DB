@@ -41,6 +41,18 @@ def _wind_to_radius(wind_kt: float) -> int:
     return 75
 
 
+def _intensity_to_alert(label: str) -> tuple[str, float]:
+    """JTWC 강도 레이블(TD/TS/TY/STY) → (alertlevel, wind_kt)"""
+    u = label.upper()
+    if u in ("STY", "VSTY"):
+        return "Red", 120.0
+    if u == "TY":
+        return "Orange", 80.0
+    if u in ("TS", "STS"):
+        return "Orange", 45.0
+    return "Green", 25.0  # TD / LO
+
+
 def _parse_item(item: ET.Element) -> dict | None:
     etype = item.findtext(f"{{{GDACS_NS}}}eventtype") or ""
     if etype != "TC":
@@ -113,6 +125,81 @@ async def get_active_typhoons():
     items = root.findall(".//item")
     typhoons = [t for item in items if (t := _parse_item(item)) is not None]
     return {"source": "gdacs", "count": len(typhoons), "typhoons": typhoons}
+
+
+@router.get("/track/{event_id}")
+async def get_typhoon_track(event_id: int):
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            ev = await client.get(
+                f"https://www.gdacs.org/gdacsapi/api/events/geteventdata?eventtype=TC&eventid={event_id}",
+                follow_redirects=True,
+            )
+            ev.raise_for_status()
+            ev_data = ev.json()
+            props = ev_data.get("properties", {})
+            episode_id = props.get("episodeid")
+            event_name = props.get("eventname", f"TC-{event_id}")
+
+            geo = await client.get(
+                f"https://www.gdacs.org/gdacsapi/api/polygons/getgeometry?eventtype=TC&eventid={event_id}&episodeid={episode_id}",
+                follow_redirects=True,
+            )
+            geo.raise_for_status()
+            geo_data = geo.json()
+    except Exception as e:
+        return {"error": str(e), "name": "", "track": []}
+
+    features = geo_data.get("features", [])
+
+    # coord → 강도 레이블 맵 (Line_Line 피처에서 추출)
+    intensity_map: dict[tuple[float, float], str] = {}
+    for f in features:
+        if not f.get("properties", {}).get("Class", "").startswith("Line_Line"):
+            continue
+        label = f["properties"].get("polygonlabel", "TD")
+        for c in f["geometry"]["coordinates"]:
+            intensity_map[(round(c[0], 1), round(c[1], 1))] = label
+
+    # 과거 + 예보 위치: Point_Polygon_Point_* 피처 (인덱스순 = 시간순)
+    point_feats = sorted(
+        [f for f in features if f.get("properties", {}).get("Class", "").startswith("Point_Polygon_Point")],
+        key=lambda f: int(f["properties"]["Class"].split("_")[-1]),
+    )
+
+    track = []
+    for step, f in enumerate(point_feats):
+        ring = f["geometry"]["coordinates"][0]
+        lons = [c[0] for c in ring]
+        lats = [c[1] for c in ring]
+        lon = round((min(lons) + max(lons)) / 2, 2)
+        lat = round((min(lats) + max(lats)) / 2, 2)
+
+        time_label = f["properties"].get("polygonlabel", f"Step {step}")
+
+        # 인근 Line_Line 에서 강도 룩업
+        intensity = "TD"
+        for (mlon, mlat), lbl in intensity_map.items():
+            if abs(mlon - lon) < 0.3 and abs(mlat - lat) < 0.3:
+                intensity = lbl
+                break
+
+        alert, wind_kt = _intensity_to_alert(intensity)
+        radius_nm = _wind_to_radius(wind_kt)
+        track.append({
+            "step": step,
+            "time": time_label,
+            "id": f"{event_id}_s{step}",
+            "name": event_name,
+            "lat": lat,
+            "lon": lon,
+            "wind_kt": wind_kt,
+            "alert": alert,
+            "radius_nm": radius_nm,
+            "color": ALERT_COLOR.get(alert, "#FCD34D"),
+        })
+
+    return {"name": event_name, "count": len(track), "track": track}
 
 
 @router.get("/mock")
