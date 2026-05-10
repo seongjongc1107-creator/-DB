@@ -92,9 +92,8 @@ export default function SearchBar() {
         applyRoutes(routeData.routes, matchedGeoJSON)
 
         try {
-          const center = turf.center(airwayGeoJSON as any)
-          const [lon, lat] = center.geometry.coordinates
-          dispatch({ type: 'SET_FLY_TO', payload: { lon, lat, zoom: 6 } })
+          const [minLon, minLat, maxLon, maxLat] = turf.bbox(airwayGeoJSON as any)
+          dispatch({ type: 'SET_FIT_BOUNDS', payload: [[minLon, minLat], [maxLon, maxLat]] })
         } catch {}
       } finally {
         dispatch({ type: 'SET_LOADING', payload: false })

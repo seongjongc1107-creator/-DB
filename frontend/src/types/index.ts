@@ -104,6 +104,7 @@ export interface AppState {
   // Multi-search highlights
   highlightPoints: SearchResult[]
   pendingFlyTo: { lon: number; lat: number; zoom?: number } | null
+  pendingFitBounds: [[number, number], [number, number]] | null
 }
 
 export type AppAction =
@@ -135,6 +136,7 @@ export type AppAction =
   | { type: 'REMOVE_HIGHLIGHT'; payload: string }
   | { type: 'CLEAR_HIGHLIGHTS' }
   | { type: 'SET_FLY_TO'; payload: { lon: number; lat: number; zoom?: number } | null }
+  | { type: 'SET_FIT_BOUNDS'; payload: [[number, number], [number, number]] | null }
   | { type: 'MERGE_AIRWAY_GEOJSON'; payload: GeoJSONFeatureCollection }
   | { type: 'MERGE_MATCHED_ROUTES_GEOJSON'; payload: GeoJSONFeatureCollection }
   | { type: 'MERGE_ALL_ROUTES'; payload: RouteMeta[] }

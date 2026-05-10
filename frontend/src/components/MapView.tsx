@@ -124,7 +124,7 @@ export default function MapView() {
     setMousePos(null)
   }, [])
 
-  // ── FlyTo effect ────────────────────────────────────────────────
+  // ── FlyTo effect ─────────────────────────────────────────────────
   useEffect(() => {
     if (!state.pendingFlyTo || !mapRef.current || !mapLoaded) return
     mapRef.current.flyTo({
@@ -134,6 +134,13 @@ export default function MapView() {
     })
     dispatch({ type: 'SET_FLY_TO', payload: null })
   }, [state.pendingFlyTo, dispatch, mapLoaded])
+
+  // ── FitBounds effect (airway 전체 범위 표시) ──────────────────────
+  useEffect(() => {
+    if (!state.pendingFitBounds || !mapRef.current || !mapLoaded) return
+    mapRef.current.fitBounds(state.pendingFitBounds, { padding: 80, duration: 1200 })
+    dispatch({ type: 'SET_FIT_BOUNDS', payload: null })
+  }, [state.pendingFitBounds, dispatch, mapLoaded])
 
   // ── Highlight markers (DOM, pulsing) ─────────────────────────────
   const HIGHLIGHT_COLORS = {
@@ -439,7 +446,7 @@ export default function MapView() {
             id="airway-casing"
             type="line"
             layout={{ visibility: state.layers.activeAirway ? 'visible' : 'none' }}
-            paint={{ 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.6 }}
+            paint={{ 'line-color': '#ffffff', 'line-width': 10, 'line-opacity': 0.5 }}
           />
           <Layer
             id="airway-line"
@@ -447,7 +454,7 @@ export default function MapView() {
             layout={{ visibility: state.layers.activeAirway ? 'visible' : 'none' }}
             paint={{
               'line-color': '#FBBF24',
-              'line-width': 3,
+              'line-width': 5,
               'line-opacity': 1,
             }}
           />
