@@ -48,6 +48,31 @@ export default function SearchBar() {
     return () => document.removeEventListener('mousedown', handle)
   }, [])
 
+  // 첫 번째 선택이면 그대로, 이미 선택 항목이 있으면 교집합만 남김
+  function applyRoutes(
+    newRoutes: import('../types').RouteMeta[],
+    newGeoJSON: import('../types').GeoJSONFeatureCollection,
+  ) {
+    const isFirst = state.highlightPoints.length === 0
+
+    if (isFirst) {
+      dispatch({ type: 'SET_ALL_ROUTES', payload: newRoutes })
+      dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: newGeoJSON })
+    } else {
+      const newIds = new Set(newRoutes.map(r => r.id))
+      const intersected = state.allRoutes.filter(r => newIds.has(r.id))
+      const intersectedIds = new Set(intersected.map(r => r.id))
+      const filteredGeo = {
+        type: 'FeatureCollection' as const,
+        features: (state.matchedRoutesGeoJSON?.features ?? []).filter(
+          f => intersectedIds.has(f.properties?.id as number),
+        ),
+      }
+      dispatch({ type: 'SET_ALL_ROUTES', payload: intersected })
+      dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: filteredGeo })
+    }
+  }
+
   async function onSelect(result: SearchResult) {
     setOpen(false)
     setQuery('')
@@ -64,8 +89,7 @@ export default function SearchBar() {
         ])
         dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: result.id })
         dispatch({ type: 'MERGE_AIRWAY_GEOJSON', payload: airwayGeoJSON })
-        dispatch({ type: 'MERGE_MATCHED_ROUTES_GEOJSON', payload: matchedGeoJSON })
-        dispatch({ type: 'MERGE_ALL_ROUTES', payload: routeData.routes })
+        applyRoutes(routeData.routes, matchedGeoJSON)
 
         try {
           const center = turf.center(airwayGeoJSON as any)
@@ -85,8 +109,7 @@ export default function SearchBar() {
           api.routes.geometry({ fix: result.id }),
         ])
         dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: result.id })
-        dispatch({ type: 'MERGE_MATCHED_ROUTES_GEOJSON', payload: matchedGeoJSON })
-        dispatch({ type: 'MERGE_ALL_ROUTES', payload: routeData.routes })
+        applyRoutes(routeData.routes, matchedGeoJSON)
 
         if (result.lat !== null && result.lon !== null) {
           dispatch({ type: 'SET_FLY_TO', payload: { lon: result.lon, lat: result.lat, zoom: 9 } })
