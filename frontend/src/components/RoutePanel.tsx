@@ -66,6 +66,7 @@ export default function RoutePanel() {
     dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: null })
     dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: null })
     dispatch({ type: 'CLEAR_HIGHLIGHTS' })
+    dispatch({ type: 'CLEAR_AIRWAY_ENDPOINTS' })
   }
 
   function exitAltMode() {

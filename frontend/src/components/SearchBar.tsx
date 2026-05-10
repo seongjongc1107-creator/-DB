@@ -94,6 +94,21 @@ export default function SearchBar() {
         try {
           const [minLon, minLat, maxLon, maxLat] = turf.bbox(airwayGeoJSON as any)
           dispatch({ type: 'SET_FIT_BOUNDS', payload: [[minLon, minLat], [maxLon, maxLat]] })
+
+          // 항공로 끝점 마커용 좌표 추출
+          const endpoints: Array<{ id: string; lon: number; lat: number }> = []
+          for (const f of airwayGeoJSON.features) {
+            const coords = f.geometry.coordinates as number[][]
+            if (coords.length >= 1) {
+              const first = coords[0]
+              const last = coords[coords.length - 1]
+              endpoints.push({ id: `${result.id}-start`, lon: first[0], lat: first[1] })
+              if (coords.length > 1) {
+                endpoints.push({ id: `${result.id}-end`, lon: last[0], lat: last[1] })
+              }
+            }
+          }
+          dispatch({ type: 'ADD_AIRWAY_ENDPOINTS', payload: endpoints })
         } catch {}
       } finally {
         dispatch({ type: 'SET_LOADING', payload: false })
@@ -134,6 +149,7 @@ export default function SearchBar() {
     setQuery('')
     setResults([])
     dispatch({ type: 'CLEAR_HIGHLIGHTS' })
+    dispatch({ type: 'CLEAR_AIRWAY_ENDPOINTS' })
     dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
     dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
     dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: null })

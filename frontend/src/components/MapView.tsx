@@ -126,8 +126,10 @@ export default function MapView() {
 
   // ── FlyTo effect ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!state.pendingFlyTo || !mapRef.current || !mapLoaded) return
-    mapRef.current.flyTo({
+    if (!state.pendingFlyTo || !mapLoaded) return
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    map.flyTo({
       center: [state.pendingFlyTo.lon, state.pendingFlyTo.lat],
       zoom: state.pendingFlyTo.zoom ?? 8,
       duration: 1200,
@@ -137,8 +139,10 @@ export default function MapView() {
 
   // ── FitBounds effect (airway 전체 범위 표시) ──────────────────────
   useEffect(() => {
-    if (!state.pendingFitBounds || !mapRef.current || !mapLoaded) return
-    mapRef.current.fitBounds(state.pendingFitBounds, { padding: 80, duration: 1200 })
+    if (!state.pendingFitBounds || !mapLoaded) return
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    map.fitBounds(state.pendingFitBounds as [number, number, number, number] | [[number, number], [number, number]], { padding: 100, duration: 1200 })
     dispatch({ type: 'SET_FIT_BOUNDS', payload: null })
   }, [state.pendingFitBounds, dispatch, mapLoaded])
 
@@ -558,6 +562,16 @@ export default function MapView() {
             paint={{ 'line-color': '#A855F7', 'line-width': 2, 'line-dasharray': [4, 2] }}
           />
         </Source>
+
+        {/* ── Airway endpoint markers ───────────────────────────────── */}
+        {state.airwayEndpoints.map(ep => (
+          <Marker key={ep.id} longitude={ep.lon} latitude={ep.lat} anchor="center">
+            <div className="relative flex items-center justify-center pointer-events-none">
+              <div className="absolute w-8 h-8 rounded-full bg-yellow-400 opacity-40 animate-ping" />
+              <div className="w-4 h-4 rounded-full bg-yellow-400 border-2 border-white shadow-xl z-10" />
+            </div>
+          </Marker>
+        ))}
 
         {/* ── Search highlight markers (pulsing DOM elements) ──────── */}
         {state.highlightPoints

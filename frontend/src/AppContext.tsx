@@ -36,6 +36,7 @@ const initialState: AppState = {
   highlightPoints: [],
   pendingFlyTo: null,
   pendingFitBounds: null,
+  airwayEndpoints: [],
 }
 
 function reducer(state: AppState, action: AppAction): AppState {
@@ -125,6 +126,10 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, pendingFlyTo: action.payload }
     case 'SET_FIT_BOUNDS':
       return { ...state, pendingFitBounds: action.payload }
+    case 'ADD_AIRWAY_ENDPOINTS':
+      return { ...state, airwayEndpoints: [...state.airwayEndpoints, ...action.payload] }
+    case 'CLEAR_AIRWAY_ENDPOINTS':
+      return { ...state, airwayEndpoints: [] }
     case 'MERGE_AIRWAY_GEOJSON': {
       const existing = state.airwayGeoJSON?.features ?? []
       return {
