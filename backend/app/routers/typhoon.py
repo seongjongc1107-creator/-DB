@@ -1,3 +1,4 @@
+import re
 import xml.etree.ElementTree as ET
 import httpx
 from fastapi import APIRouter
@@ -7,6 +8,7 @@ router = APIRouter()
 GDACS_RSS_URL = "https://www.gdacs.org/xml/rss.xml"
 GDACS_NS = "http://www.gdacs.org"
 GEO_NS = "http://www.w3.org/2003/01/geo/wgs84_pos#"
+GEORSS_NS = "http://www.georss.org/georss"
 
 ALERT_COLOR = {"Green": "#FCD34D", "Orange": "#F97316", "Red": "#EF4444"}
 DEFAULT_RADIUS = {"Green": 75, "Orange": 150, "Red": 250}
@@ -44,28 +46,44 @@ def _parse_item(item: ET.Element) -> dict | None:
     if etype != "TC":
         return None
 
-    name = item.findtext("title") or item.findtext(f"{{{GDACS_NS}}}eventname") or "Unknown"
+    name = item.findtext(f"{{{GDACS_NS}}}eventname") or item.findtext("title") or "Unknown"
     alert = item.findtext(f"{{{GDACS_NS}}}alertlevel") or "Green"
 
-    lat_str = item.findtext(f"{{{GEO_NS}}}lat") or item.findtext(f"{{{GDACS_NS}}}latitude")
-    lon_str = item.findtext(f"{{{GEO_NS}}}long") or item.findtext(f"{{{GDACS_NS}}}longitude")
-    if not lat_str or not lon_str:
+    # georss:point "lat lon" 형식 우선, 없으면 geo:lat/geo:long
+    lat: float | None = None
+    lon: float | None = None
+    georss_point = item.findtext(f"{{{GEORSS_NS}}}point")
+    if georss_point:
+        parts = georss_point.split()
+        if len(parts) == 2:
+            try:
+                lat, lon = float(parts[0]), float(parts[1])
+            except ValueError:
+                pass
+    if lat is None:
+        lat_str = item.findtext(f"{{{GEO_NS}}}lat") or item.findtext(f"{{{GDACS_NS}}}latitude")
+        lon_str = item.findtext(f"{{{GEO_NS}}}long") or item.findtext(f"{{{GDACS_NS}}}longitude")
+        if lat_str and lon_str:
+            try:
+                lat, lon = float(lat_str), float(lon_str)
+            except ValueError:
+                pass
+    if lat is None or lon is None:
         return None
 
-    try:
-        lat, lon = float(lat_str), float(lon_str)
-    except ValueError:
-        return None
-
+    # 풍속: "... wind speed of X km/h" 또는 숫자로 시작하는 값 파싱 → kt 변환
     wind_kt: float | None = None
     for tag in ("severity", "wind", "maxwind"):
-        raw = item.findtext(f"{{{GDACS_NS}}}{tag}")
-        if raw:
-            try:
-                wind_kt = float(raw.split()[0])
-                break
-            except (ValueError, IndexError):
-                pass
+        raw = item.findtext(f"{{{GDACS_NS}}}{tag}") or ""
+        m = re.search(r"(\d+(?:\.\d+)?)\s*km/h", raw)
+        if m:
+            wind_kt = round(float(m.group(1)) / 1.852, 1)
+            break
+        try:
+            wind_kt = float(raw.split()[0])
+            break
+        except (ValueError, IndexError):
+            pass
 
     radius_nm = _wind_to_radius(wind_kt) if wind_kt else DEFAULT_RADIUS.get(alert, 150)
     event_id = item.findtext(f"{{{GDACS_NS}}}eventid") or f"{lat:.2f}_{lon:.2f}"
