@@ -124,6 +124,38 @@ export default function MapView() {
     setMousePos(null)
   }, [])
 
+  const airwayData = state.airwayGeoJSON ?? EMPTY_FC
+
+  // Airway 레이어 — 직접 MapLibre API로 관리
+  useEffect(() => {
+    if (!mapLoaded) return
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    const data = airwayData as any
+    if (!map.getSource('airway-direct')) {
+      map.addSource('airway-direct', { type: 'geojson', data })
+      map.addLayer({ id: 'airway-d-casing', type: 'line', source: 'airway-direct',
+        paint: { 'line-color': '#ffffff', 'line-width': 10, 'line-opacity': 0.5 } })
+      map.addLayer({ id: 'airway-d-line', type: 'line', source: 'airway-direct',
+        paint: { 'line-color': '#FBBF24', 'line-width': 5, 'line-opacity': 1 } })
+      map.addLayer({ id: 'airway-d-label', type: 'symbol', source: 'airway-direct',
+        layout: { 'text-field': ['get', 'airway'], 'text-size': 12, 'symbol-placement': 'line-center' },
+        paint: { 'text-color': '#FBBF24', 'text-halo-color': '#1a1a1a', 'text-halo-width': 2 } })
+    } else {
+      ;(map.getSource('airway-direct') as any).setData(data)
+    }
+  }, [mapLoaded, airwayData])
+
+  useEffect(() => {
+    if (!mapLoaded) return
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    const vis = state.layers.activeAirway ? 'visible' : 'none'
+    ;['airway-d-casing', 'airway-d-line', 'airway-d-label'].forEach(id => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
+    })
+  }, [mapLoaded, state.layers.activeAirway])
+
   // ── FlyTo effect ─────────────────────────────────────────────────
   useEffect(() => {
     if (!state.pendingFlyTo || !mapLoaded) return
@@ -157,7 +189,6 @@ export default function MapView() {
   const routeData = state.routeGeoJSON ?? EMPTY_FC
   const airportsData = state.airportsGeoJSON ?? EMPTY_FC
   const waypointsData = state.waypointsGeoJSON ?? EMPTY_FC
-  const airwayData = state.airwayGeoJSON ?? EMPTY_FC
   const firData = state.firGeoJSON
   const selectedIds = state.selectedRouteIds
 
@@ -322,7 +353,7 @@ export default function MapView() {
         initialViewState={{ longitude: 127, latitude: 35, zoom: 4 }}
         style={{ width: '100%', height: '100%' }}
         interactiveLayerIds={
-          inDrawMode ? [] : ['routes-line', 'airports-circle', 'airway-line', 'searched-routes-line']
+          inDrawMode ? [] : ['routes-line', 'airports-circle', 'airway-d-line', 'searched-routes-line']
         }
         onClick={onClick}
         onMouseMove={onMouseMove}
@@ -444,36 +475,7 @@ export default function MapView() {
         </Source>
 
         {/* ── Airway 자체 경로 — 흰색 케이싱 + 노란 실선, 최상단 ── */}
-        <Source id="airway" type="geojson" data={airwayData}>
-          {/* White casing so the line is visible over any background */}
-          <Layer
-            id="airway-casing"
-            type="line"
-            layout={{ visibility: state.layers.activeAirway ? 'visible' : 'none' }}
-            paint={{ 'line-color': '#ffffff', 'line-width': 10, 'line-opacity': 0.5 }}
-          />
-          <Layer
-            id="airway-line"
-            type="line"
-            layout={{ visibility: state.layers.activeAirway ? 'visible' : 'none' }}
-            paint={{
-              'line-color': '#FBBF24',
-              'line-width': 5,
-              'line-opacity': 1,
-            }}
-          />
-          <Layer
-            id="airway-label"
-            type="symbol"
-            layout={{
-              visibility: state.layers.activeAirway ? 'visible' : 'none',
-              'text-field': ['get', 'airway'],
-              'text-size': 12,
-              'symbol-placement': 'line-center',
-            }}
-            paint={{ 'text-color': '#FBBF24', 'text-halo-color': '#1a1a1a', 'text-halo-width': 2 }}
-          />
-        </Source>
+        {/* airway 레이어는 useEffect에서 MapLibre API 직접 관리 */}
 
         {/* ── Typhoon circles ─────────────────────────────────────── */}
         <Source id="typhoon" type="geojson" data={typhoonData}>
