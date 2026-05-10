@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Map, { Source, Layer, type MapRef, type MapLayerMouseEvent } from 'react-map-gl/maplibre'
+import Map, { Source, Layer, Marker, type MapRef, type MapLayerMouseEvent } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import * as turf from '@turf/turf'
 import { useApp } from '../AppContext'
@@ -126,26 +126,21 @@ export default function MapView() {
 
   // ── FlyTo effect ────────────────────────────────────────────────
   useEffect(() => {
-    if (!state.pendingFlyTo || !mapRef.current) return
+    if (!state.pendingFlyTo || !mapRef.current || !mapLoaded) return
     mapRef.current.flyTo({
       center: [state.pendingFlyTo.lon, state.pendingFlyTo.lat],
       zoom: state.pendingFlyTo.zoom ?? 8,
-      duration: 1000,
+      duration: 1200,
     })
     dispatch({ type: 'SET_FLY_TO', payload: null })
-  }, [state.pendingFlyTo, dispatch])
+  }, [state.pendingFlyTo, dispatch, mapLoaded])
 
-  // ── Highlight points GeoJSON ─────────────────────────────────────
-  const highlightData = useMemo(() => {
-    const features = state.highlightPoints
-      .filter(p => p.lat !== null && p.lon !== null)
-      .map(p => ({
-        type: 'Feature' as const,
-        geometry: { type: 'Point' as const, coordinates: [p.lon!, p.lat!] },
-        properties: { id: p.id, itemType: p.type, name: p.name },
-      }))
-    return { type: 'FeatureCollection' as const, features }
-  }, [state.highlightPoints])
+  // ── Highlight markers (DOM, pulsing) ─────────────────────────────
+  const HIGHLIGHT_COLORS = {
+    airport:  { ping: 'bg-orange-400', dot: 'bg-orange-500', text: 'text-orange-300' },
+    waypoint: { ping: 'bg-cyan-400',   dot: 'bg-cyan-400',   text: 'text-cyan-300'   },
+    airway:   { ping: 'bg-purple-400', dot: 'bg-purple-500', text: 'text-purple-300' },
+  }
 
   // ── Base data ────────────────────────────────────────────────────
   const routeData = state.routeGeoJSON ?? EMPTY_FC
@@ -557,59 +552,24 @@ export default function MapView() {
           />
         </Source>
 
-        {/* ── Search highlights (selected airports / waypoints) ─────── */}
-        <Source id="highlights" type="geojson" data={highlightData}>
-          <Layer
-            id="highlights-halo"
-            type="circle"
-            paint={{
-              'circle-radius': 16,
-              'circle-color': [
-                'match', ['get', 'itemType'],
-                'airport', '#F97316',
-                'waypoint', '#06B6D4',
-                '#A855F7',
-              ],
-              'circle-opacity': 0.2,
-              'circle-blur': 0.5,
-            }}
-          />
-          <Layer
-            id="highlights-circle"
-            type="circle"
-            paint={{
-              'circle-radius': 9,
-              'circle-color': [
-                'match', ['get', 'itemType'],
-                'airport', '#F97316',
-                'waypoint', '#06B6D4',
-                '#A855F7',
-              ],
-              'circle-stroke-color': '#ffffff',
-              'circle-stroke-width': 2.5,
-            }}
-          />
-          <Layer
-            id="highlights-label"
-            type="symbol"
-            layout={{
-              'text-field': ['get', 'name'],
-              'text-size': 11,
-              'text-offset': [0, 1.6],
-              'text-anchor': 'top',
-            }}
-            paint={{
-              'text-color': [
-                'match', ['get', 'itemType'],
-                'airport', '#F97316',
-                'waypoint', '#06B6D4',
-                '#A855F7',
-              ],
-              'text-halo-color': '#111827',
-              'text-halo-width': 2,
-            }}
-          />
-        </Source>
+        {/* ── Search highlight markers (pulsing DOM elements) ──────── */}
+        {state.highlightPoints
+          .filter(p => p.lat !== null && p.lon !== null)
+          .map(p => {
+            const c = HIGHLIGHT_COLORS[p.type] ?? HIGHLIGHT_COLORS.waypoint
+            return (
+              <Marker key={`hl-${p.id}`} longitude={p.lon!} latitude={p.lat!} anchor="center">
+                <div className="relative flex items-center justify-center pointer-events-none">
+                  <div className={`absolute w-10 h-10 rounded-full ${c.ping} opacity-50 animate-ping`} />
+                  <div className={`w-5 h-5 rounded-full ${c.dot} border-2 border-white shadow-xl z-10`} />
+                  <div className={`absolute top-6 left-1/2 -translate-x-1/2 text-[11px] font-bold ${c.text} bg-gray-900/90 px-1.5 py-0.5 rounded whitespace-nowrap shadow`}>
+                    {p.name}
+                  </div>
+                </div>
+              </Marker>
+            )
+          })
+        }
 
         {/* ── In-progress drawing ──────────────────────────────────── */}
         <Source id="drawing" type="geojson" data={drawingData}>
