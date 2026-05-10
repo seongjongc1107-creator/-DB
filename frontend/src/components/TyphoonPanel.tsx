@@ -92,6 +92,13 @@ export default function TyphoonPanel() {
       if (data.error) { setError(`트랙 오류: ${data.error}`); return }
       if (!data.track || data.track.length === 0) { setError('트랙 데이터 없음'); return }
       dispatch({ type: 'SET_TYPHOON_TRACK', payload: data.track })
+      // 트랙 전체 범위로 지도 자동 줌
+      const lons = data.track.map(p => p.lon)
+      const lats = data.track.map(p => p.lat)
+      dispatch({ type: 'SET_FIT_BOUNDS', payload: [
+        [Math.min(...lons) - 2, Math.min(...lats) - 2],
+        [Math.max(...lons) + 2, Math.max(...lats) + 2],
+      ]})
     } catch {
       setError('트랙 데이터를 가져오지 못했습니다.')
     } finally {
