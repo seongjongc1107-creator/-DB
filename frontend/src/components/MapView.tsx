@@ -1,11 +1,74 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { api } from '../api/client'
 import Map, { Source, Layer, Marker, type MapRef, type MapLayerMouseEvent } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import * as turf from '@turf/turf'
 import { useApp } from '../AppContext'
-import type { RouteMeta } from '../types'
+import { classifyLevel, getThresholds, highlightSegments } from '../lib/weatherClassify'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
+
+function drawPlaneImageData(color: string, outline = 'rgba(0,0,0,0.7)'): ImageData {
+  const SZ = 32
+  const canvas = document.createElement('canvas')
+  canvas.width = SZ
+  canvas.height = SZ
+  const ctx = canvas.getContext('2d')!
+  const cx = SZ / 2  // 16
+
+  function shape() {
+    ctx.beginPath()
+    // 기수 (top)
+    ctx.moveTo(cx, 1)
+    // 동체 우측 → 주익 뿌리
+    ctx.lineTo(cx + 1.5, 10)
+    // 우측 주익 끝
+    ctx.lineTo(cx + 14, 17)
+    // 우익 trailing edge
+    ctx.lineTo(cx + 9,  19)
+    // 동체 우측 (주익 후방)
+    ctx.lineTo(cx + 1.5, 18)
+    // 우측 꼬리익
+    ctx.lineTo(cx + 6,  28)
+    ctx.lineTo(cx + 3,  29)
+    // 동체 후단
+    ctx.lineTo(cx,      24)
+    ctx.lineTo(cx - 3,  29)
+    ctx.lineTo(cx - 6,  28)
+    // 좌측 꼬리익
+    ctx.lineTo(cx - 1.5, 18)
+    ctx.lineTo(cx - 9,  19)
+    ctx.lineTo(cx - 14, 17)
+    ctx.lineTo(cx - 1.5, 10)
+    ctx.closePath()
+  }
+
+  // 외곽선
+  ctx.lineWidth = 1.5
+  ctx.strokeStyle = outline
+  shape()
+  ctx.stroke()
+
+  // 채우기
+  ctx.fillStyle = color
+  shape()
+  ctx.fill()
+
+  return ctx.getImageData(0, 0, SZ, SZ)
+}
+
+function addPlaneIcons(map: import('maplibre-gl').Map) {
+  const icons: [string, string, string][] = [
+    ['plane-other',  '#93C5FD', 'rgba(0,0,0,0.6)'],  // 타사 — 하늘색
+    ['plane-jja',    '#F97316', 'rgba(0,0,0,0.7)'],  // JJA — 오렌지
+    ['plane-ground', '#9CA3AF', 'rgba(0,0,0,0.5)'],  // 지상 — 회색
+  ]
+  for (const [id, color, outline] of icons) {
+    if (!map.hasImage(id)) {
+      map.addImage(id, drawPlaneImageData(color, outline))
+    }
+  }
+}
 
 const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] }
 
@@ -14,10 +77,13 @@ const FIR_STATIC = {
   features: [
     { type: 'Feature' as const, properties: { icao: 'RKRR', name: 'Incheon FIR' },
       geometry: { type: 'Polygon' as const, coordinates: [[[122,40],[132,40],[135,37],[135,33],[130,32],[124,32],[122,34],[122,40]]] } },
-    { type: 'Feature' as const, properties: { icao: 'RJJF', name: 'Fukuoka FIR' },
-      geometry: { type: 'Polygon' as const, coordinates: [[[130,32],[135,33],[135,37],[148,40],[148,28],[135,24],[124,24],[124,32],[130,32]]] } },
-    { type: 'Feature' as const, properties: { icao: 'RJJJ', name: 'Tokyo FIR' },
-      geometry: { type: 'Polygon' as const, coordinates: [[[135,40],[135,50],[145,60],[160,60],[160,50],[148,40],[135,40]]] } },
+    // 일본은 본토 전역이 단일 FIR(후쿠오카 FIR, ICAO RJJJ). "RJJF"·"Tokyo FIR"는
+    // 실존하지 않는 코드/명칭이라 하나로 합침.
+    { type: 'Feature' as const, properties: { icao: 'RJJJ', name: 'Fukuoka FIR' },
+      geometry: { type: 'MultiPolygon' as const, coordinates: [
+        [[[130,32],[135,33],[135,37],[148,40],[148,28],[135,24],[124,24],[124,32],[130,32]]],
+        [[[135,40],[135,50],[145,60],[160,60],[160,50],[148,40],[135,40]]],
+      ] } },
     { type: 'Feature' as const, properties: { icao: 'ZSHA', name: 'Shanghai FIR' },
       geometry: { type: 'Polygon' as const, coordinates: [[[110,26],[122,26],[124,32],[122,34],[122,40],[110,40],[110,26]]] } },
     { type: 'Feature' as const, properties: { icao: 'ZJSA', name: 'Sanya FIR' },
@@ -36,12 +102,67 @@ export default function MapView() {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; props: Record<string, unknown> } | null>(null)
   const [mousePos, setMousePos] = useState<[number, number] | null>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const [planeIconsReady, setPlaneIconsReady] = useState(false)
+
+  // Plane icon 로딩 — traffic 레이어 켤 때 + 맵 로드 후 실행 (동기 ImageData 방식)
+  useEffect(() => {
+    if (!state.layers.traffic || !mapLoaded) return
+    const map = mapRef.current?.getMap()
+    if (!map) { console.warn('[traffic] map not ready'); return }
+    try {
+      addPlaneIcons(map)
+      console.log('[traffic] plane icons ready, gray:', map.hasImage('plane-gray'))
+      setPlaneIconsReady(true)
+    } catch (e) {
+      console.error('[traffic] addPlaneIcons failed:', e)
+    }
+  }, [state.layers.traffic, mapLoaded])
+
+  // Traffic auto-refresh (30s, only when layer is on)
+  useEffect(() => {
+    if (!state.layers.traffic) return
+    async function fetchTraffic() {
+      dispatch({ type: 'SET_TRAFFIC_LOADING', payload: true })
+      try {
+        const res = await api.traffic.fetch()
+        console.log('[traffic] fetched:', res.count, 'jja:', res.jja_count, 'error:', res.error)
+        dispatch({ type: 'SET_TRAFFIC_DATA', payload: { aircraft: res.aircraft, updated: res.updated } })
+      } catch {
+        // keep stale data
+      } finally {
+        dispatch({ type: 'SET_TRAFFIC_LOADING', payload: false })
+      }
+    }
+    fetchTraffic()
+    const id = setInterval(fetchTraffic, 30_000)
+    return () => clearInterval(id)
+  }, [state.layers.traffic, dispatch])
+
+  // Convert traffic to GeoJSON
+  const trafficGeoJSON = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: state.trafficData.map(a => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [a.lon, a.lat] },
+      properties: {
+        icao24:    a.icao24,
+        callsign:  a.callsign || '???',
+        alt_ft:    a.altitude_m !== null ? Math.round(a.altitude_m * 3.281) : null,
+        speed_kt:  a.velocity_ms !== null ? Math.round(a.velocity_ms * 1.944) : null,
+        heading:   a.heading ?? 0,
+        on_ground: a.on_ground,
+        is_jja:    a.is_jja,
+      },
+    })),
+  }), [state.trafficData])
 
   // FIR 레이어: react-map-gl Source/Layer 대신 MapLibre API 직접 호출
   useEffect(() => {
     if (!mapLoaded) return
     const map = mapRef.current?.getMap()
     if (!map) return
+
+    // plane icons는 traffic useEffect에서 처리
 
     if (!map.getSource('fir-direct')) {
       map.addSource('fir-direct', { type: 'geojson', data: FIR_STATIC as any })
@@ -79,6 +200,7 @@ export default function MapView() {
 
   // ── Click handler ────────────────────────────────────────────────
   const onClick = useCallback((e: MapLayerMouseEvent) => {
+    setContextMenu(null)
     // Polygon drawing mode
     if (state.spatialMode === 'polygon') {
       dispatch({ type: 'ADD_SPATIAL_POINT', payload: [e.lngLat.lng, e.lngLat.lat] })
@@ -93,13 +215,40 @@ export default function MapView() {
     const features = e.features ?? []
     if (features.length === 0) {
       dispatch({ type: 'SET_SELECTED_ROUTES', payload: [] })
+      dispatch({ type: 'SET_SELECTED_AIRPORT', payload: null })
       return
     }
-    const id = features[0].properties?.id as number | undefined
+    const f = features[0]
+    // Airport click → open METAR panel
+    if (f.layer?.id === 'airports-circle') {
+      const icao = f.properties?.id as string | undefined
+      if (icao) {
+        dispatch({ type: 'SET_SELECTED_AIRPORT', payload: icao })
+        import('../api/client').then(({ api }) => {
+          // Fetch METAR if not yet loaded
+          if (!state.weatherData[icao]) {
+            api.weather.bulk([icao]).then(res => {
+              if (res.data) dispatch({ type: 'SET_WEATHER_DATA', payload: res.data })
+            })
+          }
+          // Fetch airport detail if not yet loaded
+          if (!state.airportDetail[icao]) {
+            dispatch({ type: 'SET_AIRPORT_DETAIL_LOADING', payload: true })
+            api.navdata.airportDetail(icao)
+              .then(detail => dispatch({ type: 'SET_AIRPORT_DETAIL', payload: detail }))
+              .catch(() => {})
+              .finally(() => dispatch({ type: 'SET_AIRPORT_DETAIL_LOADING', payload: false }))
+          }
+        })
+      }
+      return
+    }
+    const id = f.properties?.id as number | undefined
     if (id !== undefined) {
       dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
+      dispatch({ type: 'SET_SELECTED_AIRPORT', payload: null })
     }
-  }, [state.spatialMode, state.spatialPoints.length, dispatch])
+  }, [state.spatialMode, state.spatialPoints.length, state.weatherData, dispatch])
 
   const onMouseMove = useCallback((e: MapLayerMouseEvent) => {
     if (state.spatialMode === 'polygon') {
@@ -107,16 +256,56 @@ export default function MapView() {
       return
     }
     const features = e.features ?? []
-    if (features.length > 0) {
-      const f = features[0]
-      const id = f.properties?.id as number | undefined
-      setHoveredId(id ?? null)
-      setTooltip({ x: e.point.x, y: e.point.y, props: f.properties ?? {} })
-    } else {
+    if (features.length === 0) {
       setHoveredId(null)
       setTooltip(null)
+      return
     }
+    // 겹친 항로가 여러 개여도 호버는 맨 위 하나만 바로 보여줌(전체 항로 포함) —
+    // 겹친 목록은 우클릭으로 확인
+    const f = features[0]
+    const id = f.properties?.id as number | undefined
+    setHoveredId(id ?? null)
+    setTooltip({ x: e.point.x, y: e.point.y, props: f.properties ?? {} })
   }, [state.spatialMode])
+
+  // ── 우클릭: 겹친 항로 목록 → 클릭해서 한 단계 더 들어가 상세 보기 ──
+  const [contextMenu, setContextMenu] = useState<{
+    x: number; y: number
+    list: Record<string, unknown>[]
+    expanded: Record<string, unknown> | null
+  } | null>(null)
+
+  const onContextMenu = useCallback((e: MapLayerMouseEvent) => {
+    if (state.spatialMode !== null) return
+    const features = e.features ?? []
+    const routeHits = features.filter(f => f.layer?.id === 'routes-line-hit')
+    if (routeHits.length === 0) {
+      setContextMenu(null)
+      return
+    }
+    e.preventDefault()
+    const seenIds = new Set<number>()
+    const list: Record<string, unknown>[] = []
+    for (const f of routeHits) {
+      const id = f.properties?.id as number | undefined
+      if (id !== undefined && !seenIds.has(id)) {
+        seenIds.add(id)
+        list.push(f.properties ?? {})
+      }
+    }
+    setContextMenu({ x: e.point.x, y: e.point.y, list, expanded: null })
+  }, [state.spatialMode])
+
+  // ESC로 우클릭 메뉴 닫기
+  useEffect(() => {
+    if (!contextMenu) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setContextMenu(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [contextMenu])
 
   const onMouseLeave = useCallback(() => {
     setHoveredId(null)
@@ -160,9 +349,29 @@ export default function MapView() {
 
   // ── Base data ────────────────────────────────────────────────────
   const routeData = state.routeGeoJSON ?? EMPTY_FC
-  const airportsData = state.airportsGeoJSON ?? EMPTY_FC
+
+  // Inject weatherLevel + configured flag into each airport feature
+  const airportsDataWithWeather = useMemo(() => {
+    const src = state.airportsGeoJSON ?? EMPTY_FC
+    return {
+      ...src,
+      features: src.features.map(f => {
+        const icao = f.properties?.id as string | undefined
+        const metar = icao ? state.weatherData[icao] : undefined
+        const thresholds = icao ? getThresholds(state.weatherConfig, icao) : undefined
+        const levelFromData = metar && thresholds ? classifyLevel(metar, thresholds) : 0
+        const maxTokenLevel = metar && thresholds
+          ? highlightSegments(metar.raw || '', thresholds).reduce((m, s) => Math.max(m, s.level), 0)
+          : 0
+        const level = Math.max(levelFromData, maxTokenLevel)
+        const configured = icao ? Boolean(state.weatherConfig.airports[icao]) : false
+        const hasCurfew = icao ? Boolean(state.curfews[icao]) : false
+        return { ...f, properties: { ...f.properties, weatherLevel: level, configured, hasCurfew } }
+      }),
+    }
+  }, [state.airportsGeoJSON, state.weatherData, state.weatherConfig, state.curfews])
+
   const waypointsData = state.waypointsGeoJSON ?? EMPTY_FC
-  const firData = state.firGeoJSON
   const selectedIds = state.selectedRouteIds
 
   // ── Typhoon circles ──────────────────────────────────────────────
@@ -276,31 +485,30 @@ export default function MapView() {
   }, [state.spatialFilter])
 
   // ── Spatial route filtering with turf ────────────────────────────
+  // 항로명/공항으로 브라우징 중이면 routeData(OD 전체 geometry)를, waypoint·airway
+  // 검색 결과를 보는 중이면 matchedRoutesGeoJSON을 기준으로 교차 판정해야
+  // "지금 화면에 보이는 항로"와 "영향 항로" 판정이 어긋나지 않음.
   const spatialRoutesData = useMemo(() => {
     if (!state.spatialFilter) return null
     const filterPoly = turf.polygon([state.spatialFilter.ring])
-    const features = routeData.features.filter(f => {
+    const source = state.matchedRoutesGeoJSON ?? routeData
+    const features = source.features.filter(f => {
       try { return turf.booleanIntersects(f as any, filterPoly) }
       catch { return false }
     })
     return { type: 'FeatureCollection' as const, features }
-  }, [state.spatialFilter, routeData])
+  }, [state.spatialFilter, state.matchedRoutesGeoJSON, routeData])
 
-  // Update route list panel when spatial filter result changes
+  // 공간 필터(태풍 등)와 교차하는 항로 id만 표시용으로 표시 — 목록 자체는 건드리지 않음
+  // (예전엔 여기서 allRoutes를 교차하는 항로로 통째로 갈아치워서, 영향 없는 항로를
+  // 고르면 지도에 아무것도 안 뜨는 버그가 있었음)
   useEffect(() => {
-    if (!spatialRoutesData) return
-    const routes: RouteMeta[] = spatialRoutesData.features.map(f => ({
-      id: f.properties?.id as number,
-      origin: f.properties?.origin as string,
-      destination: f.properties?.destination as string,
-      number: f.properties?.number as number,
-      route: f.properties?.route as string,
-      distance: f.properties?.distance as number,
-      disabled: false,
-      aircraft: (f.properties?.aircraft ?? '') as string,
-    }))
-    dispatch({ type: 'SET_ALL_ROUTES', payload: routes })
-    dispatch({ type: 'SET_SELECTED_ROUTES', payload: [] })
+    if (!spatialRoutesData) {
+      dispatch({ type: 'SET_AFFECTED_ROUTES', payload: [] })
+      return
+    }
+    const ids = spatialRoutesData.features.map(f => f.properties?.id as number)
+    dispatch({ type: 'SET_AFFECTED_ROUTES', payload: ids })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spatialRoutesData])
 
@@ -331,16 +539,19 @@ export default function MapView() {
     return { type: 'FeatureCollection' as const, features }
   }, [state.altRouteMode, spatialRoutesData, state.matchedRoutesGeoJSON, selectedIds, routeData])
 
-  // ── Selected route highlight (클릭한 항로만 주황색으로 강조) ──
+  // ── Selected route highlight (클릭한 항로만 색으로 강조) ──
+  // spatialRoutesData(공간 필터 교차 항로만 남긴 집합)를 pool에 넣으면 필터에
+  // 안 걸리는 항로를 선택했을 때 지도에 아무것도 안 그려지는 문제가 있어서 제외.
+  // routeData는 현재 로드된 OD의 전체 항로 geometry를 항상 갖고 있음.
   const selectedRouteHighlightData = useMemo(() => {
     if (selectedIds.length === 0) return EMPTY_FC
     const idSet = new Set(selectedIds)
-    const pool = state.matchedRoutesGeoJSON ?? spatialRoutesData ?? routeData
+    const pool = state.matchedRoutesGeoJSON ?? routeData
     return {
       type: 'FeatureCollection' as const,
       features: pool.features.filter(f => idSet.has(f.properties?.id as number)),
     }
-  }, [selectedIds, state.matchedRoutesGeoJSON, spatialRoutesData, routeData])
+  }, [selectedIds, state.matchedRoutesGeoJSON, routeData])
 
   const inDrawMode = state.spatialMode !== null
 
@@ -352,11 +563,17 @@ export default function MapView() {
         initialViewState={{ longitude: 127, latitude: 35, zoom: 4 }}
         style={{ width: '100%', height: '100%' }}
         interactiveLayerIds={
-          inDrawMode ? [] : ['routes-line', 'airports-circle', 'airway-line', 'searched-routes-line', 'selected-route-line']
+          inDrawMode ? [] : [
+            'routes-line-hit', 'airports-circle', 'airway-line',
+            'searched-routes-line', 'selected-route-line',
+            ...(state.layers.traffic ? ['traffic-icon'] : []),
+          ]
         }
+        onLoad={() => setMapLoaded(true)}
         onClick={onClick}
         onMouseMove={onMouseMove}
         onMouseOut={onMouseLeave}
+        onContextMenu={onContextMenu}
         cursor={inDrawMode ? 'crosshair' : hoveredId !== null ? 'pointer' : 'grab'}
       >
         {/* ── FIR Boundaries ──────────────────────────────────────── */}
@@ -400,19 +617,52 @@ export default function MapView() {
               'line-opacity': 0.45,
             }}
           />
+          {/* 보이지 않는 넓은 히트 영역 — 얇은 실선을 정확히 겨냥하지 않아도 호버되게 */}
+          <Layer
+            id="routes-line-hit"
+            type="line"
+            layout={{ visibility: state.layers.routes ? 'visible' : 'none' }}
+            paint={{ 'line-color': '#000000', 'line-width': 14, 'line-opacity': 0 }}
+          />
         </Source>
 
         {/* ── Airports ─────────────────────────────────────────────── */}
-        <Source id="airports" type="geojson" data={airportsData}>
+        <Source id="airports" type="geojson" data={airportsDataWithWeather}>
           <Layer
             id="airports-circle"
             type="circle"
             layout={{ visibility: state.layers.airports ? 'visible' : 'none' }}
             paint={{
               'circle-radius': 5,
-              'circle-color': '#EF4444',
-              'circle-stroke-color': '#fff',
+              'circle-color': [
+                'match', ['get', 'weatherLevel'],
+                1, '#22C55E',
+                2, '#F59E0B',
+                3, '#EF4444',
+                '#6B7280',
+              ],
+              // 개별 최저치 미설정 공항: stroke를 점선 느낌으로 표현 (opacity 차이)
+              'circle-stroke-color': [
+                'case', ['get', 'configured'], '#ffffff', '#9CA3AF',
+              ],
               'circle-stroke-width': 1.5,
+              'circle-opacity': [
+                'case', ['get', 'configured'], 1, 0.65,
+              ],
+            }}
+          />
+          <Layer
+            id="airports-curfew-ring"
+            type="circle"
+            filter={['==', ['get', 'hasCurfew'], true]}
+            layout={{ visibility: state.layers.curfew && state.layers.airports ? 'visible' : 'none' }}
+            paint={{
+              'circle-radius': 9,
+              'circle-color': 'transparent',
+              'circle-stroke-color': '#EF4444',
+              'circle-stroke-width': 2,
+              'circle-opacity': 0,
+              'circle-stroke-opacity': 0.85,
             }}
           />
           <Layer
@@ -426,7 +676,17 @@ export default function MapView() {
               'text-offset': [0, 1.2],
               'text-anchor': 'top',
             }}
-            paint={{ 'text-color': '#EF4444', 'text-halo-color': '#fff', 'text-halo-width': 1.5 }}
+            paint={{
+              'text-color': [
+                'match', ['get', 'weatherLevel'],
+                1, '#22C55E',
+                2, '#F59E0B',
+                3, '#EF4444',
+                '#6B7280',
+              ],
+              'text-halo-color': '#fff',
+              'text-halo-width': 1.5,
+            }}
           />
         </Source>
 
@@ -473,17 +733,18 @@ export default function MapView() {
           />
         </Source>
 
-        {/* ── 선택된 항로 강조 (주황 실선, 초록 위) ───────────────── */}
+        {/* ── 선택된 항로 강조 (색으로만 구분, 얇게) ───────────────── */}
         <Source id="selected-route" type="geojson" data={selectedRouteHighlightData}>
-          <Layer
-            id="selected-route-casing"
-            type="line"
-            paint={{ 'line-color': '#ffffff', 'line-width': 7, 'line-opacity': 0.7 }}
-          />
           <Layer
             id="selected-route-line"
             type="line"
-            paint={{ 'line-color': '#F97316', 'line-width': 4, 'line-opacity': 1 }}
+            paint={{
+              'line-color': selectedIds.length === 2
+                ? ['match', ['get', 'id'], selectedIds[0], '#F97316', selectedIds[1], '#22D3EE', '#F97316']
+                : '#F97316',
+              'line-width': 2.2,
+              'line-opacity': 1,
+            }}
           />
         </Source>
 
@@ -652,6 +913,48 @@ export default function MapView() {
             paint={{ 'circle-radius': 5, 'circle-color': '#A855F7', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 }}
           />
         </Source>
+
+        {/* ── Traffic ──────────────────────────────────────────────── */}
+        {state.layers.traffic && planeIconsReady && (
+          <Source id="traffic" type="geojson" data={trafficGeoJSON}>
+            {/* 항공기 아이콘 (헤딩 방향으로 회전) */}
+            <Layer
+              id="traffic-icon"
+              type="symbol"
+              layout={{
+                'icon-image': [
+                  'case',
+                  ['get', 'on_ground'], 'plane-ground',
+                  ['get', 'is_jja'],    'plane-jja',
+                  'plane-other',
+                ],
+                'icon-size': ['case', ['get', 'is_jja'], 0.9, 0.7],
+                'icon-rotate': ['get', 'heading'],
+                'icon-rotation-alignment': 'map',
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true,
+              }}
+            />
+            {/* 콜사인 라벨 (zoom 7+) */}
+            <Layer
+              id="traffic-label"
+              type="symbol"
+              minzoom={7}
+              layout={{
+                'text-field': ['get', 'callsign'],
+                'text-size': 9,
+                'text-offset': [0, 1.6],
+                'text-anchor': 'top',
+                'text-allow-overlap': false,
+              }}
+              paint={{
+                'text-color': ['case', ['get', 'is_jja'], '#F97316', '#9CA3AF'],
+                'text-halo-color': '#111827',
+                'text-halo-width': 1.2,
+              }}
+            />
+          </Source>
+        )}
       </Map>
 
       {/* Tooltip */}
@@ -679,7 +982,82 @@ export default function MapView() {
             </>
           ) : tooltip.props.airway ? (
             <div className="font-semibold text-green-400">{tooltip.props.airway as string}</div>
+          ) : tooltip.props.callsign ? (
+            // Aircraft tooltip
+            <div className="space-y-1">
+              <div className={`font-bold text-sm ${tooltip.props.is_jja ? 'text-orange-400' : 'text-white'}`}>
+                {tooltip.props.callsign as string}
+                {!!tooltip.props.is_jja && <span className="ml-2 text-[10px] font-semibold px-1 py-0.5 rounded bg-orange-900/60 border border-orange-700 text-orange-300">제주항공</span>}
+              </div>
+              <div className="text-gray-400 text-[11px] space-y-0.5">
+                {tooltip.props.alt_ft !== null && <div>고도 {(tooltip.props.alt_ft as number).toLocaleString()} ft</div>}
+                {tooltip.props.speed_kt !== null && <div>속도 {tooltip.props.speed_kt as number} kt</div>}
+                {tooltip.props.heading !== null && <div>헤딩 {(tooltip.props.heading as number).toFixed(0)}°</div>}
+                {!!tooltip.props.on_ground && <div className="text-yellow-400">지상 (On Ground)</div>}
+              </div>
+            </div>
           ) : null}
+        </div>
+      )}
+
+      {/* 우클릭: 겹친 항로 목록 → 클릭해서 한 단계 더 들어가 상세 보기 */}
+      {contextMenu && (
+        <div
+          className="absolute bg-gray-900 border border-gray-700 text-white text-xs rounded-lg shadow-2xl z-20 w-64 max-h-72 overflow-hidden flex flex-col"
+          style={{ left: contextMenu.x + 6, top: contextMenu.y + 6 }}
+        >
+          {contextMenu.expanded ? (
+            <>
+              <button
+                onClick={() => setContextMenu({ ...contextMenu, expanded: null })}
+                className="flex items-center gap-1 text-gray-400 hover:text-white px-2.5 py-1.5 border-b border-gray-700 shrink-0 transition-colors"
+              >
+                ← 목록으로 ({contextMenu.list.length}개)
+              </button>
+              <div className="p-2.5 overflow-y-auto">
+                <div className="font-bold text-sm text-white">
+                  {contextMenu.expanded.origin as string}–{contextMenu.expanded.destination as string}
+                  <span className="ml-1 text-yellow-400 font-semibold">
+                    #{contextMenu.expanded.number as number}
+                  </span>
+                </div>
+                <div className="text-gray-400 mt-1">{contextMenu.expanded.distance as number} NM</div>
+                <div className="text-gray-400 mt-1 break-all leading-relaxed">
+                  {contextMenu.expanded.route as string}
+                </div>
+                <button
+                  onClick={() => {
+                    dispatch({ type: 'SET_SELECTED_ROUTES', payload: [contextMenu.expanded!.id as number] })
+                    setContextMenu(null)
+                  }}
+                  className="mt-2 w-full text-center bg-blue-700 hover:bg-blue-600 text-white rounded px-2 py-1 transition-colors"
+                >
+                  이 항로 지도에서 강조
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="px-2.5 py-1.5 border-b border-gray-700 text-gray-400 shrink-0">
+                겹친 항로 {contextMenu.list.length}개
+              </div>
+              <div className="overflow-y-auto">
+                {contextMenu.list.map((p, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setContextMenu({ ...contextMenu, expanded: p })}
+                    className="w-full text-left flex items-center justify-between gap-2 px-2.5 py-1.5 hover:bg-gray-800 transition-colors"
+                  >
+                    <span className="text-white font-medium">
+                      {p.origin as string}–{p.destination as string}
+                      <span className="ml-1 text-yellow-400 font-semibold">#{p.number as number}</span>
+                    </span>
+                    <span className="text-gray-500 shrink-0">{p.distance as number} NM</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

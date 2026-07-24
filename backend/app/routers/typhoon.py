@@ -37,7 +37,7 @@ def _wind_to_radius(wind_kt: float) -> int:
         return 260
     if wind_kt >= 64:
         return 190
-    if wind_kt >= 48:
+    if wind_kt >= 34:  # TS 이상 (열대폭풍 기준)
         return 120
     return 75
 
@@ -189,14 +189,13 @@ async def get_typhoon_track(event_id: int):
     if analysis_dt is None:
         analysis_dt = datetime.now(timezone.utc)
 
-    # coord → 강도 레이블 맵 (Line_Line 피처에서 추출)
-    intensity_map: dict[tuple[float, float], str] = {}
-    for f in features:
-        if not f.get("properties", {}).get("Class", "").startswith("Line_Line"):
-            continue
-        label = f["properties"].get("polygonlabel", "TD")
-        for c in f["geometry"]["coordinates"]:
-            intensity_map[(round(c[0], 1), round(c[1], 1))] = label
+    # Line_Line_N 피처를 인덱스순으로 정렬 → step N과 N+1 사이 강도
+    line_feats = sorted(
+        [f for f in features if f.get("properties", {}).get("Class", "").startswith("Line_Line")],
+        key=lambda f: int(f["properties"]["Class"].split("_")[-1]),
+    )
+    # step i의 강도: Line_Line_i (i→i+1 구간) 레이블 사용, 마지막 포인트는 마지막 라인 재사용
+    line_labels = [f["properties"].get("polygonlabel", "TD") for f in line_feats]
 
     # 과거 + 예보 위치: Point_Polygon_Point_* 피처 (인덱스순 = 시간순)
     point_feats = sorted(
@@ -218,12 +217,8 @@ async def get_typhoon_track(event_id: int):
         pt_dt = _parse_label_dt(time_label, analysis_dt.year)
         is_forecast = pt_dt is not None and pt_dt > analysis_dt
 
-        # 인근 Line_Line 에서 강도 룩업
-        intensity = "TD"
-        for (mlon, mlat), lbl in intensity_map.items():
-            if abs(mlon - lon) < 0.3 and abs(mlat - lat) < 0.3:
-                intensity = lbl
-                break
+        # 인덱스 기반 강도 매핑 (Line_Line_N = step N→N+1 구간)
+        intensity = line_labels[min(step, len(line_labels) - 1)] if line_labels else "TD"
 
         alert, wind_kt = _intensity_to_alert(intensity)
         radius_nm = _wind_to_radius(wind_kt)

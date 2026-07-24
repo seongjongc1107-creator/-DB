@@ -1,0 +1,5 @@
+icao,start,end,timezone,note
+RJTT,23:00,06:00,Asia/Tokyo,소음규제 야간비행제한
+RJOO,21:00,07:00,Asia/Tokyo,이타미 소음규제
+RKSS,23:00,06:00,Asia/Seoul,김포 야간운항제한
+RJAA,23:00,06:00,Asia/Tokyo,나리타 야간제한

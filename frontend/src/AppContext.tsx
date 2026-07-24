@@ -1,10 +1,12 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react'
 import type { AppState, AppAction, LayerState } from './types'
+import { loadConfig, saveConfig } from './lib/weatherClassify'
 
 const initialState: AppState = {
   origin: '',
   destination: '',
   selectedRouteIds: [],
+  affectedRouteIds: [],
   activeAirway: null,
   activeWaypoint: null,
   allRoutes: [],
@@ -21,6 +23,8 @@ const initialState: AppState = {
     matchedRoutes: true,
     typhoon: true,
     fir: true,
+    curfew: true,
+    traffic: false,
   },
   spatialMode: null,
   spatialPoints: [],
@@ -37,6 +41,20 @@ const initialState: AppState = {
   pendingFlyTo: null,
   pendingFitBounds: null,
   airwayEndpoints: [],
+  trafficData: [],
+  trafficLoading: false,
+  trafficLastUpdate: null,
+  curfews: {},
+  curfewPanelOpen: false,
+  airportDetail: {},
+  airportDetailLoading: false,
+  activeAirportTab: 'weather',
+  weatherData: {},
+  weatherAlerts: [],
+  weatherLoading: false,
+  selectedAirportIcao: null,
+  weatherConfig: loadConfig(),
+  thresholdModalTarget: null,
 }
 
 function reducer(state: AppState, action: AppAction): AppState {
@@ -47,6 +65,8 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, destination: action.payload }
     case 'SET_SELECTED_ROUTES':
       return { ...state, selectedRouteIds: action.payload }
+    case 'SET_AFFECTED_ROUTES':
+      return { ...state, affectedRouteIds: action.payload }
     case 'SET_ACTIVE_AIRWAY':
       return {
         ...state,
@@ -156,6 +176,64 @@ function reducer(state: AppState, action: AppAction): AppState {
       const newRoutes = action.payload.filter(r => !existingIds.has(r.id))
       return { ...state, allRoutes: [...state.allRoutes, ...newRoutes] }
     }
+    case 'SET_WEATHER_DATA': {
+      const updated = { ...state.weatherData }
+      for (const d of action.payload) updated[d.icao] = d
+      return { ...state, weatherData: updated }
+    }
+    case 'ADD_WEATHER_ALERTS':
+      return { ...state, weatherAlerts: [...action.payload, ...state.weatherAlerts].slice(0, 20) }
+    case 'DISMISS_WEATHER_ALERT':
+      return { ...state, weatherAlerts: state.weatherAlerts.filter(a => a.id !== action.payload) }
+    case 'SET_WEATHER_LOADING':
+      return { ...state, weatherLoading: action.payload }
+    case 'SET_TRAFFIC_DATA':
+      return { ...state, trafficData: action.payload.aircraft, trafficLastUpdate: action.payload.updated }
+    case 'SET_TRAFFIC_LOADING':
+      return { ...state, trafficLoading: action.payload }
+    case 'SET_CURFEWS': {
+      const map: Record<string, import('./types').CurfewInfo> = {}
+      for (const c of action.payload) map[c.icao] = c
+      return { ...state, curfews: map }
+    }
+    case 'TOGGLE_CURFEW_PANEL':
+      return { ...state, curfewPanelOpen: !state.curfewPanelOpen }
+    case 'SET_AIRPORT_DETAIL': {
+      return { ...state, airportDetail: { ...state.airportDetail, [action.payload.icao]: action.payload } }
+    }
+    case 'SET_AIRPORT_DETAIL_LOADING':
+      return { ...state, airportDetailLoading: action.payload }
+    case 'SET_AIRPORT_TAB':
+      return { ...state, activeAirportTab: action.payload }
+    case 'SET_SELECTED_AIRPORT':
+      return { ...state, selectedAirportIcao: action.payload, activeAirportTab: 'weather' }
+    case 'SET_WEATHER_CONFIG':
+      saveConfig(action.payload)
+      return { ...state, weatherConfig: action.payload }
+    case 'SET_DEFAULT_THRESHOLDS': {
+      const next = { ...state.weatherConfig, defaults: action.payload }
+      saveConfig(next)
+      return { ...state, weatherConfig: next }
+    }
+    case 'SET_AIRPORT_THRESHOLDS': {
+      const next = {
+        ...state.weatherConfig,
+        airports: { ...state.weatherConfig.airports, [action.payload.icao]: action.payload.thresholds },
+      }
+      saveConfig(next)
+      return { ...state, weatherConfig: next }
+    }
+    case 'RESET_AIRPORT_THRESHOLDS': {
+      const airports = { ...state.weatherConfig.airports }
+      delete airports[action.payload]
+      const next = { ...state.weatherConfig, airports }
+      saveConfig(next)
+      return { ...state, weatherConfig: next }
+    }
+    case 'OPEN_THRESHOLD_MODAL':
+      return { ...state, thresholdModalTarget: action.payload }
+    case 'CLOSE_THRESHOLD_MODAL':
+      return { ...state, thresholdModalTarget: null }
     default:
       return state
   }

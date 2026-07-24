@@ -1,3 +1,44 @@
+export type WeatherLevel = 1 | 2 | 3
+
+export interface MetarData {
+  icao: string
+  raw: string
+  taf_raw: string | null
+  level: WeatherLevel
+  flight_category: string
+  vis_m: number | null
+  ceiling_ft: number | null
+  wind_kt: number | null
+  gust_kt: number | null
+  weather: string[]
+  temp_c: number | null
+  dewpoint_c: number | null
+  qnh_hpa: number | null
+  obs_time: string
+}
+
+export interface WeatherAlert {
+  id: string
+  icao: string
+  level: WeatherLevel
+  message: string
+  time: string
+}
+
+export interface WeatherThresholds {
+  vis_caution_m: number       // 시정 주의 기준 (m)
+  vis_severe_m: number        // 시정 심각 기준 (m)
+  ceiling_caution_ft: number  // 운고 주의 기준 (ft)
+  ceiling_severe_ft: number   // 운고 심각 기준 (ft)
+  gust_caution_kt: number     // 돌풍 주의 기준 (kt)
+  gust_severe_kt: number      // 돌풍 심각 기준 (kt)
+}
+
+export interface WeatherConfig {
+  defaults: WeatherThresholds
+  airports: Record<string, WeatherThresholds>  // 공항별 override (ICAO → thresholds)
+}
+
 export interface RouteMeta {
   id: number
   origin: string
@@ -30,6 +71,140 @@ export interface SearchResult {
   lat: number | null
   lon: number | null
   description: string
+}
+
+export interface AircraftState {
+  icao24: string
+  callsign: string
+  lon: number
+  lat: number
+  altitude_m: number | null
+  on_ground: boolean
+  velocity_ms: number | null
+  heading: number | null
+  vertical_rate: number | null
+  is_jja: boolean
+}
+
+export interface CurfewInfo {
+  icao: string
+  start: string     // e.g. "23:00"
+  end: string       // e.g. "06:00"
+  timezone: string  // e.g. "Asia/Tokyo"
+  note: string
+}
+
+export type AirportTab = 'weather' | 'runway' | 'approach'
+
+export interface RunwayInfo {
+  id: string
+  bearing_m: number
+  length_ft: number
+  width_ft: number
+  elevation_ft: number
+  threshold_disp_ft: number
+}
+
+export interface ILSInfo {
+  id: string
+  frequency: string
+  bearing_m: number
+  category: string
+}
+
+export interface ApproachProc {
+  procedure: string
+  type: string       // 'ILS' | 'LPV' | 'RNP' | 'VOR' | 'NDB' | ...
+  type_code: string  // 'I' | 'L' | 'R' | 'V' | 'N' | ...
+  runway: string
+  rnp_ar: boolean
+  ils: ILSInfo | null
+}
+
+export interface AirportDetail {
+  icao: string
+  name: string
+  lat: number
+  lon: number
+  elevation_ft: number
+  runways: RunwayInfo[]
+  approaches: ApproachProc[]
+}
+
+// ─── Weather trend / history ───────────────────────────────────────────────
+
+export interface MetarPoint {
+  obs_time: string
+  wdir: number | null
+  wspd: number | null
+  wgst: number | null
+  vis_m: number | null
+  ceiling_ft: number | null
+  temp_c: number | null
+  dewpoint_c: number | null
+  qnh_hpa: number | null
+  flight_category: string
+  raw: string
+}
+
+export interface TafPeriod {
+  type: string   // 'BASE' | 'BECMG' | 'TEMPO' | 'FM' | 'PROB...'
+  from: string | null
+  to: string | null
+  wdir: number | null
+  wspd: number | null
+  wgst: number | null
+  vis_m: number | null
+  ceiling_ft: number | null
+}
+
+export interface WeatherTrendData {
+  icao: string
+  metar: MetarPoint[]
+  taf_periods: TafPeriod[]
+  taf_raw: string | null
+  error?: string
+}
+
+export interface WeatherHistoryTrend {
+  icao: string
+  count: number
+  points: MetarPoint[]
+  error?: string
+}
+
+export interface MonthlyStats {
+  month: string          // 'YYYY-MM'
+  count: number
+  avg_wspd: number | null
+  p10_wspd: number | null
+  p90_wspd: number | null
+  avg_vis_m: number | null
+  p10_vis_m: number | null
+  avg_ceiling_ft: number | null
+  avg_temp_c: number | null
+  avg_qnh_hpa: number | null
+  cat_vfr: number
+  cat_mvfr: number
+  cat_ifr: number
+  cat_lifr: number
+}
+
+export interface WeatherHistoryMonthly {
+  icao: string
+  months: MonthlyStats[]
+  error?: string
+}
+
+export interface CollectStatus {
+  icao: string
+  start: string
+  end: string
+  status: 'running' | 'done' | 'cancelled' | 'error'
+  total_months: number
+  processed: number
+  inserted: number
+  error: string | null
 }
 
 export type SpatialMode = 'polygon' | 'circle' | null
@@ -68,6 +243,8 @@ export interface LayerState {
   matchedRoutes: boolean // airway 검색으로 찾은 navblue 항로 (실선)
   typhoon: boolean
   fir: boolean
+  curfew: boolean
+  traffic: boolean
 }
 
 export interface AppState {
@@ -78,6 +255,8 @@ export interface AppState {
   selectedRouteIds: number[]
   activeAirway: string | null
   activeWaypoint: string | null
+  // 공간 필터(태풍 등)와 교차하는 항로 id — 목록에서 정렬/강조용, allRoutes는 그대로 유지
+  affectedRouteIds: number[]
   // Data
   allRoutes: RouteMeta[]
   routeGeoJSON: GeoJSONFeatureCollection | null
@@ -108,12 +287,31 @@ export interface AppState {
   pendingFlyTo: { lon: number; lat: number; zoom?: number } | null
   pendingFitBounds: [[number, number], [number, number]] | null
   airwayEndpoints: Array<{ id: string; lon: number; lat: number }>
+  // Traffic
+  trafficData: AircraftState[]
+  trafficLoading: boolean
+  trafficLastUpdate: number | null
+  // Curfew
+  curfews: Record<string, CurfewInfo>
+  curfewPanelOpen: boolean
+  // Airport detail (static navdata)
+  airportDetail: Record<string, AirportDetail>
+  airportDetailLoading: boolean
+  activeAirportTab: AirportTab
+  // Weather
+  weatherData: Record<string, MetarData>
+  weatherAlerts: WeatherAlert[]
+  weatherLoading: boolean
+  selectedAirportIcao: string | null
+  weatherConfig: WeatherConfig
+  thresholdModalTarget: string | null  // null=닫힘, 'defaults'=전체기본값, ICAO=공항별
 }
 
 export type AppAction =
   | { type: 'SET_ORIGIN'; payload: string }
   | { type: 'SET_DESTINATION'; payload: string }
   | { type: 'SET_SELECTED_ROUTES'; payload: number[] }
+  | { type: 'SET_AFFECTED_ROUTES'; payload: number[] }
   | { type: 'SET_ACTIVE_AIRWAY'; payload: string | null }
   | { type: 'SET_ACTIVE_WAYPOINT'; payload: string | null }
   | { type: 'SET_ALL_ROUTES'; payload: RouteMeta[] }
@@ -145,3 +343,21 @@ export type AppAction =
   | { type: 'MERGE_AIRWAY_GEOJSON'; payload: GeoJSONFeatureCollection }
   | { type: 'MERGE_MATCHED_ROUTES_GEOJSON'; payload: GeoJSONFeatureCollection }
   | { type: 'MERGE_ALL_ROUTES'; payload: RouteMeta[] }
+  | { type: 'SET_TRAFFIC_DATA'; payload: { aircraft: AircraftState[]; updated: number } }
+  | { type: 'SET_TRAFFIC_LOADING'; payload: boolean }
+  | { type: 'SET_CURFEWS'; payload: CurfewInfo[] }
+  | { type: 'TOGGLE_CURFEW_PANEL' }
+  | { type: 'SET_AIRPORT_DETAIL'; payload: AirportDetail }
+  | { type: 'SET_AIRPORT_DETAIL_LOADING'; payload: boolean }
+  | { type: 'SET_AIRPORT_TAB'; payload: AirportTab }
+  | { type: 'SET_WEATHER_DATA'; payload: MetarData[] }
+  | { type: 'ADD_WEATHER_ALERTS'; payload: WeatherAlert[] }
+  | { type: 'DISMISS_WEATHER_ALERT'; payload: string }
+  | { type: 'SET_WEATHER_LOADING'; payload: boolean }
+  | { type: 'SET_SELECTED_AIRPORT'; payload: string | null }
+  | { type: 'SET_WEATHER_CONFIG'; payload: WeatherConfig }
+  | { type: 'SET_AIRPORT_THRESHOLDS'; payload: { icao: string; thresholds: WeatherThresholds } }
+  | { type: 'SET_DEFAULT_THRESHOLDS'; payload: WeatherThresholds }
+  | { type: 'RESET_AIRPORT_THRESHOLDS'; payload: string }
+  | { type: 'OPEN_THRESHOLD_MODAL'; payload: string }
+  | { type: 'CLOSE_THRESHOLD_MODAL' }

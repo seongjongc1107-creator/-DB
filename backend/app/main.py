@@ -8,8 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
+from .db import init_db
 from .data_loader import store
-from .routers import routes, navdata, search, typhoon
+from .routers import routes, navdata, search, typhoon, weather
+from .routers.curfew import load_curfew_file
 
 STATIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
 
@@ -19,6 +21,8 @@ async def lifespan(app: FastAPI):
     loop = asyncio.get_event_loop()
     with ThreadPoolExecutor(max_workers=1) as pool:
         await loop.run_in_executor(pool, store.load)
+    load_curfew_file()
+    await init_db()
     yield
 
 
@@ -35,6 +39,13 @@ app.include_router(routes.router, prefix="/api/routes", tags=["routes"])
 app.include_router(navdata.router, prefix="/api/navdata", tags=["navdata"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(typhoon.router, prefix="/api/typhoon", tags=["typhoon"])
+app.include_router(weather.router, prefix="/api/weather", tags=["weather"])
+
+from .routers import curfew as curfew_module
+app.include_router(curfew_module.router, prefix="/api/curfew", tags=["curfew"])
+
+from .routers import traffic as traffic_module
+app.include_router(traffic_module.router, prefix="/api/traffic", tags=["traffic"])
 
 
 @app.get("/api/health")

@@ -84,7 +84,9 @@ export default function RoutePanel() {
       return
     }
 
-    if (!state.spatialFilter || state.allRoutes.length === 0) return
+    const affectedIdSet = new Set(state.affectedRouteIds)
+    const affected = state.allRoutes.filter(r => affectedIdSet.has(r.id))
+    if (!state.spatialFilter || affected.length === 0) return
 
     setAltMode(true)
     setAltLoading(true)
@@ -92,7 +94,6 @@ export default function RoutePanel() {
     dispatch({ type: 'SET_ALT_ROUTE_MODE', payload: false })
 
     try {
-      const affected = state.allRoutes
       const excludeIds = affected.map(r => r.id).join(',')
 
       // OD별 영향 항로 그룹핑 (패널에 표시용)
@@ -174,9 +175,32 @@ export default function RoutePanel() {
   }, [altRoutes])
 
   const [routeTooltip, setRouteTooltip] = useState<{ x: number; y: number; text: string } | null>(null)
-  const routes = state.allRoutes
-  const selected = new Set(state.selectedRouteIds)
+  const affectedIdSet = useMemo(() => new Set(state.affectedRouteIds), [state.affectedRouteIds])
+  // 공간 필터(태풍 등)에 걸리는 항로를 최상단으로 — 목록 자체는 그대로 유지해서
+  // 영향 없는 항로도 선택해서 실제로 안전한지 지도에서 확인할 수 있게 함
+  const routes = useMemo(() => {
+    if (affectedIdSet.size === 0) return state.allRoutes
+    return [...state.allRoutes].sort((a, b) => {
+      const aAff = affectedIdSet.has(a.id) ? 0 : 1
+      const bAff = affectedIdSet.has(b.id) ? 0 : 1
+      return aAff - bAff
+    })
+  }, [state.allRoutes, affectedIdSet])
   const hasSpatialFilter = !!state.spatialFilter
+
+  // 최대 2개까지 선택(비교용). 3번째를 고르면 가장 먼저 고른 걸 밀어냄.
+  function toggleRouteSelect(id: number) {
+    const current = state.selectedRouteIds
+    let next: number[]
+    if (current.includes(id)) {
+      next = current.filter(x => x !== id)
+    } else if (current.length >= 2) {
+      next = [current[1], id]
+    } else {
+      next = [...current, id]
+    }
+    dispatch({ type: 'SET_SELECTED_ROUTES', payload: next })
+  }
 
   function exportCsv() {
     const header = ['Origin', 'Destination', 'Number', 'Route', 'Distance (NM)', 'Aircraft']
@@ -278,29 +302,65 @@ export default function RoutePanel() {
                 </button>
               </div>
             </div>
-            {routes.map(r => (
-              <button
-                key={r.id}
-                className={`w-full text-left px-2.5 py-2 rounded-md text-xs transition-colors ${
-                  selected.has(r.id)
-                    ? 'bg-yellow-900/50 border border-yellow-600 text-yellow-200'
-                    : 'bg-gray-800 hover:bg-gray-750 border border-transparent text-gray-300 hover:text-white'
-                }`}
-                onClick={() => dispatch({ type: 'SET_SELECTED_ROUTES', payload: selected.has(r.id) ? [] : [r.id] })}
-                onMouseEnter={e => {
-                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                  setRouteTooltip({ x: rect.right + 8, y: rect.top, text: r.route })
-                }}
-                onMouseLeave={() => setRouteTooltip(null)}
-              >
-                <div className="font-semibold text-white">
-                  {r.origin} → {r.destination}
-                  <span className="ml-1 text-gray-500 font-normal">#{r.number}</span>
-                </div>
-                <div className="text-gray-400 truncate mt-0.5">{r.route}</div>
-                <div className="text-gray-500 mt-0.5">{r.distance} NM</div>
-              </button>
-            ))}
+            {affectedIdSet.size > 0 && (
+              <div className="text-[10px] text-orange-400 mb-1">
+                영향 항로 {affectedIdSet.size}개 — 위로 정렬했어요. 나머지도 선택해서 실제로 안전한지 확인할 수 있어요
+              </div>
+            )}
+            {state.selectedRouteIds.length > 0 && (
+              <div className="text-[10px] text-gray-500 mb-1">
+                {state.selectedRouteIds.length === 1
+                  ? '비교할 항로를 하나 더 선택하세요'
+                  : '2개 항로 비교 중 — 다른 항로를 고르면 먼저 선택한 항로가 빠집니다'}
+              </div>
+            )}
+            {routes.map(r => {
+              const selIdx = state.selectedRouteIds.indexOf(r.id)
+              const isSelected = selIdx !== -1
+              const isAffected = affectedIdSet.has(r.id)
+              const color = selIdx === 0 ? '#F97316' : selIdx === 1 ? '#22D3EE' : undefined
+              return (
+                <button
+                  key={r.id}
+                  className={`w-full text-left px-2.5 py-2 rounded-md text-xs transition-colors border ${
+                    isSelected
+                      ? 'text-white'
+                      : isAffected
+                        ? 'bg-orange-950/30 hover:bg-orange-950/50 border-orange-800/60 text-gray-300 hover:text-white'
+                        : 'bg-gray-800 hover:bg-gray-750 border-transparent text-gray-300 hover:text-white'
+                  }`}
+                  style={isSelected ? { backgroundColor: color + '26', borderColor: color } : undefined}
+                  onClick={() => toggleRouteSelect(r.id)}
+                  onMouseEnter={e => {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                    setRouteTooltip({ x: rect.right + 8, y: rect.top, text: r.route })
+                  }}
+                  onMouseLeave={() => setRouteTooltip(null)}
+                >
+                  <div className="flex items-center gap-1.5">
+                    {isSelected && (
+                      <span
+                        className="flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold text-gray-950 shrink-0"
+                        style={{ backgroundColor: color }}
+                      >
+                        {selIdx + 1}
+                      </span>
+                    )}
+                    <div className="font-semibold text-white">
+                      {r.origin} → {r.destination}
+                      <span className="ml-1 text-gray-500 font-normal">#{r.number}</span>
+                    </div>
+                    {isAffected && (
+                      <span className="flex items-center gap-0.5 text-[9px] font-semibold text-orange-400 shrink-0">
+                        <AlertTriangle size={9} /> 영향
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-gray-400 truncate mt-0.5">{r.route}</div>
+                  <div className="text-gray-500 mt-0.5">{r.distance} NM</div>
+                </button>
+              )
+            })}
           </>
         )}
       </div>

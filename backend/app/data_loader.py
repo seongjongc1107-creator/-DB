@@ -9,7 +9,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 NAVDATA_CSV = DATA_DIR / "NAVDATA.csv"
@@ -46,6 +46,33 @@ class NDB:
 
 
 @dataclass
+class RunwayInfo:
+    id: str
+    bearing_m: float
+    length_ft: int
+    width_ft: int
+    elevation_ft: float
+    threshold_disp_ft: int = 0
+
+
+@dataclass
+class ILSEntry:
+    id: str
+    runway: str      # e.g. RW33L
+    frequency: str   # e.g. 109.3
+    bearing_m: float
+    category: str
+
+
+@dataclass
+class ApproachProc:
+    procedure: str   # e.g. I15LY
+    type_code: str   # I / L / R / V / N / G
+    runway: str      # e.g. 15L
+    rnp_ar: bool
+
+
+@dataclass
 class AirwayFix:
     airway: str
     segment: int
@@ -69,6 +96,10 @@ class Route:
     comments: str
     tokens: List[str] = field(default_factory=list)
     coordinates: List[List[float]] = field(default_factory=list)  # [[lon, lat], ...]
+    # tokens에는 없지만 airway 구간을 펼치면서 실제로 지나가는 중간 fix 이름들.
+    # waypoint 검색(route_by_token)이 이걸 놓치면 "W4를 타는 항로"는 찾아도
+    # "W4 안의 FATAN을 지나는 항로"는 못 찾는 문제가 생김.
+    passed_fixes: Set[str] = field(default_factory=set)
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +176,10 @@ class NavDataStore:
         self.ndbs: Dict[str, NDB] = {}
         # airway name → sorted list of AirwayFix
         self.airways: Dict[str, List[AirwayFix]] = defaultdict(list)
+        # airport ICAO → detail lists
+        self.runways: Dict[str, List[RunwayInfo]] = defaultdict(list)
+        self.ils_by_airport: Dict[str, List[ILSEntry]] = defaultdict(list)
+        self.approaches_by_airport: Dict[str, List[ApproachProc]] = defaultdict(list)
 
         self.routes: List[Route] = []
 
@@ -152,6 +187,8 @@ class NavDataStore:
         # fix → list of [lon, lat] candidates (same name can exist at multiple locations)
         self.fix_lookup: Dict[str, List[List[float]]] = {}
         self.airway_names: set = set()
+        # airway name → list of segments, each a sequence-sorted list of AirwayFix
+        self.airway_segments: Dict[str, List[List[AirwayFix]]] = {}
         # procedure name → ordered [[lon, lat], ...] (SID/STAR enroute waypoints)
         self.procedure_lookup: Dict[str, List[List[float]]] = {}
         self.route_by_origin: Dict[str, List[int]] = defaultdict(list)
@@ -173,6 +210,7 @@ class NavDataStore:
               f"  ndbs={len(self.ndbs)}  airways={len(self.airways)}"
               f"  procedures={len(self.procedure_lookup)}")
         self._build_fix_lookup()
+        self._build_airway_segments()
         print("Loading routes…")
         self._load_routes()
         self._resolve_geometries()
@@ -191,7 +229,7 @@ class NavDataStore:
         # Locate section column-header rows (stored as i+1 where i=section-name row)
         sections: Dict[str, int] = {}
         known = {'Airports', 'Airways', 'NDBs', 'Runways', 'Waypoints',
-                 'Approaches', 'SIDs', 'STARs'}
+                 'Approaches', 'Company Routes', 'ILSs', 'Navaids', 'SIDs', 'STARs'}
         for i, line in enumerate(lines):
             cleaned = line.strip().rstrip(',')
             if cleaned in known:
@@ -205,6 +243,9 @@ class NavDataStore:
         self._parse_airports(section_text('Airports', 'Airways'))
         self._parse_airways(section_text('Airways', 'NDBs'))
         self._parse_ndbs(section_text('NDBs', 'Runways'))
+        self._parse_runways(section_text('Runways', 'SIDs'))
+        self._parse_ils(section_text('ILSs', 'Navaids'))
+        self._parse_approaches_unique(section_text('Approaches', 'Company Routes'))
         self._parse_waypoints(section_text('Waypoints', None))
         self._parse_procedures(
             section_text('SIDs', 'STARs'),
@@ -296,6 +337,80 @@ class NavDataStore:
             if len(coords) >= 1:
                 self.procedure_lookup[proc] = coords
 
+    @staticmethod
+    def _parse_bearing(s: str) -> float:
+        """'83.0 M' → 83.0"""
+        try:
+            return float((s or '').split()[0])
+        except (ValueError, IndexError):
+            return 0.0
+
+    _PROC_RE = re.compile(r'^([A-Z])(\d{2}[LRCT]?)(.*)')
+
+    def _parse_runways(self, text: str) -> None:
+        for row in csv.DictReader(io.StringIO(text)):
+            airport = (row.get('Airport') or '').strip()
+            rid = (row.get('Id') or '').strip()
+            if not airport or not rid:
+                continue
+            try:
+                length = int(row.get('Length') or 0)
+                width = int(row.get('Width') or 0)
+                elev = float(row.get('Elevation') or 0)
+                disp = int(row.get('Threshold Displacement Distance') or 0)
+            except (ValueError, TypeError):
+                length = width = disp = 0
+                elev = 0.0
+            self.runways[airport].append(RunwayInfo(
+                id=rid,
+                bearing_m=self._parse_bearing(row.get('Bearing', '')),
+                length_ft=length,
+                width_ft=width,
+                elevation_ft=elev,
+                threshold_disp_ft=disp,
+            ))
+
+    def _parse_ils(self, text: str) -> None:
+        for row in csv.DictReader(io.StringIO(text)):
+            airport = (row.get('Airport') or '').strip()
+            iid = (row.get('Id') or '').strip()
+            runway = (row.get('Runway') or '').strip()
+            if not airport or not iid or not runway:
+                continue
+            self.ils_by_airport[airport].append(ILSEntry(
+                id=iid,
+                runway=runway,
+                frequency=(row.get('Frequency') or '').strip(),
+                bearing_m=self._parse_bearing(row.get('Bearing', '')),
+                category=(row.get('Category') or '').strip(),
+            ))
+
+    def _parse_approaches_unique(self, text: str) -> None:
+        seen: set = set()
+        for row in csv.DictReader(io.StringIO(text)):
+            airport = (row.get('Airport') or '').strip()
+            proc = (row.get('Procedure') or '').strip()
+            if not airport or not proc:
+                continue
+            key = (airport, proc)
+            if key in seen:
+                continue
+            seen.add(key)
+            rnp_ar_val = (row.get('RNP-AR') or '').strip()
+            rnp_ar = rnp_ar_val.upper() in ('YES', '1', 'TRUE')
+            m = self._PROC_RE.match(proc)
+            if m:
+                type_code, runway = m.group(1), m.group(2)
+            else:
+                type_code = proc[0] if proc else ''
+                runway = proc[1:] if len(proc) > 1 else ''
+            self.approaches_by_airport[airport].append(ApproachProc(
+                procedure=proc,
+                type_code=type_code,
+                runway=runway,
+                rnp_ar=rnp_ar,
+            ))
+
     def _parse_waypoints(self, text: str) -> None:
         for row in csv.DictReader(io.StringIO(text)):
             wid = (row.get('Id') or '').strip()
@@ -346,6 +461,29 @@ class NavDataStore:
         for proc, coords in self.procedure_lookup.items():
             if proc not in self.fix_lookup and coords:
                 add(proc, coords[-1][0], coords[-1][1])
+
+    def _build_airway_segments(self) -> None:
+        """Group each airway's fixes by physical segment, sorted by sequence,
+        so a route leg like "... GYA R474 NOB ..." can be expanded into the
+        real chain of intermediate waypoints instead of a straight line."""
+        grouped: Dict[Tuple[str, int], List[AirwayFix]] = defaultdict(list)
+        for name, fixes in self.airways.items():
+            for f in fixes:
+                grouped[(name, f.segment)].append(f)
+        for (name, _seg), flist in grouped.items():
+            flist.sort(key=lambda x: x.sequence)
+            self.airway_segments.setdefault(name, []).append(flist)
+
+    def _expand_airway(self, airway: str, entry: str, exit_: str) -> Optional[List[AirwayFix]]:
+        """Return the AirwayFix chain from entry to exit (inclusive) along the
+        given airway, or None if that airway doesn't connect the two fixes."""
+        for seg in self.airway_segments.get(airway, []):
+            names = [f.fix for f in seg]
+            if entry not in names or exit_ not in names:
+                continue
+            i, j = names.index(entry), names.index(exit_)
+            return seg[i:j + 1] if i <= j else list(reversed(seg[j:i + 1]))
+        return None
 
     # ------------------------------------------------------------------
     # Route loading
@@ -403,20 +541,79 @@ class NavDataStore:
 
             # Seed reference point from origin airport
             ref: Optional[List[float]] = origin_cands[0][:] if origin_cands else None
+            ref_name: Optional[str] = route.origin if origin_cands else None
+            if ref is not None:
+                raw.append(ref[:])
+                route.passed_fixes.add(route.origin)
 
-            for token in route.tokens:
-                if token in self.airway_names or token in self._NON_FIX_TOKENS:
+            # ICAO route strings alternate FIX, CONNECTOR(airway/DCT), FIX, CONNECTOR, ...
+            # (SID/STAR procedure names attach directly to their adjacent fix with no
+            # connector). Some enroute fix identifiers collide with unrelated airway
+            # names elsewhere in the dataset (e.g. PUD, NXD, GYA, NOB, BMT, LKH), so we
+            # must disambiguate by *position* in the token stream, not by set membership
+            # alone — otherwise a legitimate fix gets misread as an airway and silently
+            # dropped, leaving a long straight "DCT-looking" gap in the route.
+            #
+            # Procedure names are looked up in fix_lookup too (as a fallback for search),
+            # so a token can be BOTH a real fix and, coincidentally, some unrelated
+            # airport's SID/STAR identifier (e.g. "TNN" is both a VOR and a procedure
+            # name elsewhere). A SID can only legally appear as the token right after
+            # the origin, and a STAR only as the token right before the destination —
+            # anywhere else, a procedure-name match is almost certainly this kind of
+            # collision, so plain-fix resolution must win there.
+            expect_connector = False  # first fix (origin airport) already seeded above
+            pending_airway: Optional[str] = None
+            n_tokens = len(route.tokens)
+
+            for i, token in enumerate(route.tokens[1:] if origin_cands else route.tokens):
+                is_sid_pos = i == 0
+                is_star_pos = i == n_tokens - 3
+
+                if expect_connector:
+                    # Connector slot: airway id or DCT — unless a STAR attaches here
+                    # directly, in which case it behaves like a fix-slot token too.
+                    if is_star_pos and token in self.procedure_lookup:
+                        pts = self.procedure_lookup[token]
+                        raw.extend(pts)
+                        if pts:
+                            ref = pts[-1][:]
+                            ref_name = None  # procedure endpoint isn't a named fix
+                        expect_connector = False
+                    else:
+                        # Remember a real airway so the next fix can be reached by
+                        # following its actual published waypoint chain instead of
+                        # a straight line.
+                        pending_airway = token if token in self.airway_names else None
+                        expect_connector = False
                     continue
 
-                # Expand SID/STAR procedures
-                if token in self.procedure_lookup:
+                # Fix slot: SID/STAR procedure or a plain fix
+                if token in self._NON_FIX_TOKENS:
+                    continue
+
+                if (is_sid_pos or is_star_pos) and token in self.procedure_lookup:
                     pts = self.procedure_lookup[token]
                     raw.extend(pts)
                     if pts:
                         ref = pts[-1][:]
+                        ref_name = None
+                    pending_airway = None
+                    # Procedure consumed; its terminal fix still follows with no
+                    # connector, so stay in the fix slot.
                     continue
 
                 candidates = self.fix_lookup.get(token)
+                if not candidates and token in self.procedure_lookup:
+                    # Not a plain fix anywhere, but does resolve as a procedure even
+                    # though it's not in the usual SID/STAR slot — better than dropping
+                    # the token entirely.
+                    pts = self.procedure_lookup[token]
+                    raw.extend(pts)
+                    if pts:
+                        ref = pts[-1][:]
+                        ref_name = None
+                    pending_airway = None
+                    continue
                 if not candidates:
                     continue
 
@@ -428,10 +625,24 @@ class NavDataStore:
 
                 # Sanity check: skip if jump is geographically impossible
                 if ref is not None and _gc_km(ref, chosen) > max_leg_km:
+                    pending_airway = None
                     continue
 
-                raw.append(chosen[:])
-                ref = chosen
+                expanded = (
+                    self._expand_airway(pending_airway, ref_name, token)
+                    if pending_airway and ref_name else None
+                )
+                if expanded and len(expanded) > 2:
+                    raw.extend([[f.lon, f.lat] for f in expanded[1:]])
+                    ref = [expanded[-1].lon, expanded[-1].lat]
+                    route.passed_fixes.update(f.fix for f in expanded)
+                else:
+                    raw.append(chosen[:])
+                    ref = chosen
+                    route.passed_fixes.add(token)
+                ref_name = token
+                pending_airway = None
+                expect_connector = True
 
             route.coordinates = _fix_antimeridian(raw)
 
@@ -439,8 +650,14 @@ class NavDataStore:
         for route in self.routes:
             self.route_by_origin[route.origin].append(route.id)
             self.route_by_dest[route.destination].append(route.id)
+            # route.tokens: 문자열에 그대로 적힌 토큰(항공로 이름 포함).
+            # route.passed_fixes: 항공로를 펼치면서 실제로 지나가는 중간 fix까지 포함.
+            # 검색은 이 둘의 합집합으로 색인해야 "W4 안의 FATAN을 지나는 항로" 같은
+            # 걸 놓치지 않음 — get_routes()에서 set()으로 중복은 알아서 제거됨.
             for token in route.tokens:
                 self.route_by_token[token].append(route.id)
+            for fix in route.passed_fixes:
+                self.route_by_token[fix].append(route.id)
 
     # ------------------------------------------------------------------
     # Query helpers
