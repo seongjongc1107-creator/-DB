@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from ..data_loader import store
@@ -7,47 +9,11 @@ _TYPE_LABEL = {
     'N': 'NDB', 'G': 'GLS', 'B': 'LOC BC', 'S': 'LDA', 'D': 'VOR/DME',
 }
 
-# 동아시아 주요 FIR 경계 (ICAO 기반 근사치, 시각화 목적)
-_FIR_DATA = {
-    "type": "FeatureCollection",
-    "features": [
-        {
-            "type": "Feature",
-            "properties": {"icao": "RKRR", "name": "Incheon FIR"},
-            "geometry": {"type": "Polygon", "coordinates": [[[122.0,40.0],[132.0,40.0],[135.0,37.0],[135.0,33.0],[130.0,32.0],[124.0,32.0],[122.0,34.0],[122.0,40.0]]]},
-        },
-        {
-            # 일본은 본토 전역이 단일 FIR(후쿠오카 FIR)이며 ICAO 코드는 RJJJ.
-            # "RJJF"·"Tokyo FIR"는 실존하지 않는 코드/명칭이라 하나로 합침.
-            "type": "Feature",
-            "properties": {"icao": "RJJJ", "name": "Fukuoka FIR"},
-            "geometry": {"type": "MultiPolygon", "coordinates": [
-                [[[124.0,24.0],[135.0,24.0],[148.0,28.0],[148.0,40.0],[135.0,40.0],[132.0,40.0],[135.0,37.0],[135.0,33.0],[130.0,32.0],[124.0,32.0],[124.0,24.0]]],
-                [[[132.0,40.0],[148.0,40.0],[160.0,50.0],[160.0,60.0],[145.0,60.0],[135.0,50.0],[132.0,45.0],[132.0,40.0]]],
-            ]},
-        },
-        {
-            "type": "Feature",
-            "properties": {"icao": "ZSHA", "name": "Shanghai FIR"},
-            "geometry": {"type": "Polygon", "coordinates": [[[110.0,26.0],[122.0,26.0],[124.0,32.0],[122.0,34.0],[122.0,40.0],[110.0,40.0],[110.0,26.0]]]},
-        },
-        {
-            "type": "Feature",
-            "properties": {"icao": "ZJSA", "name": "Sanya FIR"},
-            "geometry": {"type": "Polygon", "coordinates": [[[107.0,10.0],[122.0,10.0],[122.0,26.0],[110.0,26.0],[107.0,22.0],[107.0,10.0]]]},
-        },
-        {
-            "type": "Feature",
-            "properties": {"icao": "RPHI", "name": "Manila FIR"},
-            "geometry": {"type": "Polygon", "coordinates": [[[116.0,4.0],[130.0,4.0],[136.0,10.0],[136.0,22.0],[124.0,24.0],[122.0,18.0],[122.0,10.0],[116.0,4.0]]]},
-        },
-        {
-            "type": "Feature",
-            "properties": {"icao": "VHHK", "name": "Hongkong FIR"},
-            "geometry": {"type": "Polygon", "coordinates": [[[107.0,10.0],[116.0,10.0],[116.0,22.0],[107.0,22.0],[107.0,10.0]]]},
-        },
-    ],
-}
+# 전 세계 FIR/UIR 경계 — VATSIM vatspy-data-project (CC BY-SA 4.0) 좌표를 그대로 사용.
+# 실제 ICAO FIR 경계에 맞춰 관리되는 공개 데이터라 이전의 손그림 근사치(동아시아 6개)보다 정확하고 범위도 넓음.
+_FIR_DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "fir_boundaries.geojson"
+with open(_FIR_DATA_PATH, encoding="utf-8") as _f:
+    _FIR_DATA = json.load(_f)
 
 router = APIRouter()
 

@@ -72,33 +72,11 @@ function addPlaneIcons(map: import('maplibre-gl').Map) {
 
 const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] }
 
-const FIR_STATIC = {
-  type: 'FeatureCollection' as const,
-  features: [
-    { type: 'Feature' as const, properties: { icao: 'RKRR', name: 'Incheon FIR' },
-      geometry: { type: 'Polygon' as const, coordinates: [[[122,40],[132,40],[135,37],[135,33],[130,32],[124,32],[122,34],[122,40]]] } },
-    // 일본은 본토 전역이 단일 FIR(후쿠오카 FIR, ICAO RJJJ). "RJJF"·"Tokyo FIR"는
-    // 실존하지 않는 코드/명칭이라 하나로 합침.
-    { type: 'Feature' as const, properties: { icao: 'RJJJ', name: 'Fukuoka FIR' },
-      geometry: { type: 'MultiPolygon' as const, coordinates: [
-        [[[130,32],[135,33],[135,37],[148,40],[148,28],[135,24],[124,24],[124,32],[130,32]]],
-        [[[135,40],[135,50],[145,60],[160,60],[160,50],[148,40],[135,40]]],
-      ] } },
-    { type: 'Feature' as const, properties: { icao: 'ZSHA', name: 'Shanghai FIR' },
-      geometry: { type: 'Polygon' as const, coordinates: [[[110,26],[122,26],[124,32],[122,34],[122,40],[110,40],[110,26]]] } },
-    { type: 'Feature' as const, properties: { icao: 'ZJSA', name: 'Sanya FIR' },
-      geometry: { type: 'Polygon' as const, coordinates: [[[107,10],[122,10],[122,26],[110,26],[107,22],[107,10]]] } },
-    { type: 'Feature' as const, properties: { icao: 'RPHI', name: 'Manila FIR' },
-      geometry: { type: 'Polygon' as const, coordinates: [[[116,4],[130,4],[136,10],[136,22],[124,24],[122,18],[122,10],[116,4]]] } },
-    { type: 'Feature' as const, properties: { icao: 'VHHK', name: 'Hongkong FIR' },
-      geometry: { type: 'Polygon' as const, coordinates: [[[107,10],[116,10],[116,22],[107,22],[107,10]]] } },
-  ],
-}
-
 export default function MapView() {
   const { state, dispatch } = useApp()
   const mapRef = useRef<MapRef>(null)
   const [hoveredId, setHoveredId] = useState<number | null>(null)
+  const [hoveredListRouteId, setHoveredListRouteId] = useState<number | null>(null)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; props: Record<string, unknown> } | null>(null)
   const [mousePos, setMousePos] = useState<[number, number] | null>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
@@ -155,37 +133,6 @@ export default function MapView() {
       },
     })),
   }), [state.trafficData])
-
-  // FIR 레이어: react-map-gl Source/Layer 대신 MapLibre API 직접 호출
-  useEffect(() => {
-    if (!mapLoaded) return
-    const map = mapRef.current?.getMap()
-    if (!map) return
-
-    // plane icons는 traffic useEffect에서 처리
-
-    if (!map.getSource('fir-direct')) {
-      map.addSource('fir-direct', { type: 'geojson', data: FIR_STATIC as any })
-      map.addLayer({ id: 'fir-d-fill', type: 'fill', source: 'fir-direct',
-        paint: { 'fill-color': '#22D3EE', 'fill-opacity': 0.06 } })
-      map.addLayer({ id: 'fir-d-line', type: 'line', source: 'fir-direct',
-        paint: { 'line-color': '#22D3EE', 'line-width': 2 } })
-      map.addLayer({ id: 'fir-d-label', type: 'symbol', source: 'fir-direct',
-        layout: { 'text-field': ['get', 'icao'], 'text-size': 14, 'text-anchor': 'center' },
-        paint: { 'text-color': '#22D3EE', 'text-halo-color': '#000', 'text-halo-width': 2 } })
-    }
-  }, [mapLoaded])
-
-  // FIR 레이어 가시성 토글
-  useEffect(() => {
-    if (!mapLoaded) return
-    const map = mapRef.current?.getMap()
-    if (!map) return
-    const vis = state.layers.fir ? 'visible' : 'none'
-    ;['fir-d-fill', 'fir-d-line', 'fir-d-label'].forEach(id => {
-      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
-    })
-  }, [mapLoaded, state.layers.fir])
 
   // ESC → 그리기 모드 취소
   useEffect(() => {
@@ -305,6 +252,11 @@ export default function MapView() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [contextMenu])
+
+  // 우클릭 메뉴가 닫히면 목록 호버 강조도 같이 해제
+  useEffect(() => {
+    if (!contextMenu) setHoveredListRouteId(null)
   }, [contextMenu])
 
   const onMouseLeave = useCallback(() => {
@@ -554,6 +506,16 @@ export default function MapView() {
     }
   }, [selectedIds, state.matchedRoutesGeoJSON, routeData])
 
+  // ── 우클릭 겹친 항로 목록 호버 강조 ──
+  const hoveredListRouteData = useMemo(() => {
+    if (hoveredListRouteId === null) return EMPTY_FC
+    const pool = state.matchedRoutesGeoJSON ?? routeData
+    return {
+      type: 'FeatureCollection' as const,
+      features: pool.features.filter(f => f.properties?.id === hoveredListRouteId),
+    }
+  }, [hoveredListRouteId, state.matchedRoutesGeoJSON, routeData])
+
   const inDrawMode = state.spatialMode !== null
 
   return (
@@ -578,8 +540,8 @@ export default function MapView() {
         cursor={inDrawMode ? 'crosshair' : hoveredId !== null ? 'pointer' : 'grab'}
       >
         {/* ── FIR Boundaries ──────────────────────────────────────── */}
-        {true && (
-          <Source id="fir" type="geojson" data={FIR_STATIC}>
+        {state.firGeoJSON && (
+          <Source id="fir" type="geojson" data={state.firGeoJSON}>
             <Layer
               id="fir-fill"
               type="fill"
@@ -598,6 +560,7 @@ export default function MapView() {
               layout={{
                 visibility: state.layers.fir ? 'visible' : 'none',
                 'text-field': ['get', 'icao'],
+                'text-font': ['Noto Sans Regular'],
                 'text-size': 14,
                 'text-anchor': 'center',
               }}
@@ -673,6 +636,7 @@ export default function MapView() {
             layout={{
               visibility: state.layers.airports ? 'visible' : 'none',
               'text-field': ['get', 'id'],
+              'text-font': ['Noto Sans Regular'],
               'text-size': 10,
               'text-offset': [0, 1.2],
               'text-anchor': 'top',
@@ -712,6 +676,7 @@ export default function MapView() {
             layout={{
               visibility: state.layers.waypoints ? 'visible' : 'none',
               'text-field': ['get', 'id'],
+              'text-font': ['Noto Sans Regular'],
               'text-size': 9,
               'text-offset': [0, 1],
               'text-anchor': 'top',
@@ -806,6 +771,7 @@ export default function MapView() {
             layout={{
               visibility: state.layers.typhoon ? 'visible' : 'none',
               'text-field': ['get', 'name'],
+              'text-font': ['Noto Sans Regular'],
               'text-size': 11,
               'text-offset': [0, 1.5],
               'text-anchor': 'top',
@@ -943,6 +909,7 @@ export default function MapView() {
               minzoom={7}
               layout={{
                 'text-field': ['get', 'callsign'],
+                'text-font': ['Noto Sans Regular'],
                 'text-size': 9,
                 'text-offset': [0, 1.6],
                 'text-anchor': 'top',
@@ -956,6 +923,19 @@ export default function MapView() {
             />
           </Source>
         )}
+
+        {/* ── 겹친 항로 목록 호버 강조 (우클릭 메뉴에서 마우스오버) — 항상 최상단 ── */}
+        <Source id="hovered-list-route" type="geojson" data={hoveredListRouteData}>
+          <Layer
+            id="hovered-list-route-line"
+            type="line"
+            paint={{
+              'line-color': '#FDE047',
+              'line-width': 4,
+              'line-opacity': 1,
+            }}
+          />
+        </Source>
       </Map>
 
       {/* Tooltip */}
@@ -1010,7 +990,7 @@ export default function MapView() {
           {contextMenu.expanded ? (
             <>
               <button
-                onClick={() => setContextMenu({ ...contextMenu, expanded: null })}
+                onClick={() => { setContextMenu({ ...contextMenu, expanded: null }); setHoveredListRouteId(null) }}
                 className="flex items-center gap-1 text-gray-400 hover:text-white px-2.5 py-1.5 border-b border-gray-700 shrink-0 transition-colors"
               >
                 ← 목록으로 ({contextMenu.list.length}개)
@@ -1046,7 +1026,9 @@ export default function MapView() {
                 {contextMenu.list.map((p, i) => (
                   <button
                     key={i}
-                    onClick={() => setContextMenu({ ...contextMenu, expanded: p })}
+                    onClick={() => { setContextMenu({ ...contextMenu, expanded: p }); setHoveredListRouteId(p.id as number) }}
+                    onMouseEnter={() => setHoveredListRouteId(p.id as number)}
+                    onMouseLeave={() => setHoveredListRouteId(null)}
                     className="w-full text-left flex items-center justify-between gap-2 px-2.5 py-1.5 hover:bg-gray-800 transition-colors"
                   >
                     <span className="text-white font-medium">

@@ -10,6 +10,7 @@
 | `NAVDATA.csv` | 공항/항공로/웨이포인트/절차(SID·STAR) 등 항행 데이터 | Jeppesen NDB CSV export (JJA 사이클) |
 | `Navblue_Route.csv` | 항로(OD 페어별 flight-planned route) 데이터 | Navblue city-pair route export |
 | `curfew.csv` | 공항별 커퓨(야간 운항 제한) 시간 | 수동 관리 |
+| `fir_boundaries.geojson` | 전 세계 FIR/UIR 경계 (지도 오버레이용) | [VATSIM vatspy-data-project](https://github.com/vatsimnetwork/vatspy-data-project) `Boundaries.geojson` (CC BY-SA 4.0), ATC 서브섹터 제외하고 최상위 FIR/UIR만 추출 |
 | `backups/` | 갱신 전 자동 백업 (git에는 안 올라감, `.gitignore` 처리됨) | — |
 
 ## 갱신 절차
