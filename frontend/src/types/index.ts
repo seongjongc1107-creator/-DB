@@ -65,12 +65,13 @@ export interface GeoJSONFeature {
 }
 
 export interface SearchResult {
-  type: 'airport' | 'airway' | 'waypoint'
+  type: 'airport' | 'airway' | 'waypoint' | 'route'
   id: string
   name: string
   lat: number | null
   lon: number | null
   description: string
+  route?: RouteMeta  // type === 'route'일 때만 채워짐
 }
 
 export interface AircraftState {

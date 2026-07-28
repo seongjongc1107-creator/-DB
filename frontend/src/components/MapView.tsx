@@ -345,6 +345,7 @@ export default function MapView() {
     airport:  { ping: 'bg-orange-400', dot: 'bg-orange-500', text: 'text-orange-300' },
     waypoint: { ping: 'bg-cyan-400',   dot: 'bg-cyan-400',   text: 'text-cyan-300'   },
     airway:   { ping: 'bg-purple-400', dot: 'bg-purple-500', text: 'text-purple-300' },
+    route:    { ping: 'bg-blue-400',   dot: 'bg-blue-500',   text: 'text-blue-300'   },
   }
 
   // ── Base data ────────────────────────────────────────────────────

@@ -108,6 +108,25 @@ class Route:
 
 _DMS_RE = re.compile(r'(\d+)[°°]\s*(\d+)[\'′’]\s*([\d.]+)')
 
+# Route strings sometimes use raw lat/lon tokens instead of named fixes, e.g.
+# "3802N12848E" = 38°02'N 128°48'E (DDMM[N|S]DDDMM[E|W], degrees+minutes only).
+_COORD_TOKEN_RE = re.compile(r'^(\d{2})(\d{2})([NS])(\d{3})(\d{2})([EW])$')
+
+
+def _parse_coord_token(token: str) -> Optional[Tuple[float, float]]:
+    """'3802N12848E' → (lon, lat) in decimal degrees, or None if not this format."""
+    m = _COORD_TOKEN_RE.match(token)
+    if not m:
+        return None
+    lat_deg, lat_min, lat_dir, lon_deg, lon_min, lon_dir = m.groups()
+    lat = int(lat_deg) + int(lat_min) / 60.0
+    lon = int(lon_deg) + int(lon_min) / 60.0
+    if lat_dir == 'S':
+        lat = -lat
+    if lon_dir == 'W':
+        lon = -lon
+    return (lon, lat)
+
 
 def _parse_dms(s: str) -> Optional[float]:
     """'N 33° 26' 51.85\"' → decimal degrees."""
@@ -603,6 +622,10 @@ class NavDataStore:
                     continue
 
                 candidates = self.fix_lookup.get(token)
+                if not candidates:
+                    coord = _parse_coord_token(token)
+                    if coord is not None:
+                        candidates = [[coord[0], coord[1]]]
                 if not candidates and token in self.procedure_lookup:
                     # Not a plain fix anywhere, but does resolve as a procedure even
                     # though it's not in the usual SID/STAR slot — better than dropping

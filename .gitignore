@@ -12,3 +12,7 @@ frontend/dist/
 
 ## OS
 .DS_Store
+
+## Data backups (로컬 보관용, git엔 안 올림 — 갱신 전 자동 백업되는 폴더)
+backend/data/backups/
+backend/metar_archive.db
