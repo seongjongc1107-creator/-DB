@@ -163,16 +163,16 @@ function WindSpeedChart({ data }: { data: ChartPoint[] }) {
           {yAxis('kt')}
           <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
             formatter={(v: any, name: any) => [`${v ?? '—'} kt`, name]} />
-          {hasTaf && (
-            <Area type="stepAfter" dataKey="taf_wspd" name="TAF 예보"
-              stroke="#f97316" strokeWidth={1} strokeDasharray="4 2"
-              fill="#f97316" fillOpacity={0.10} dot={false} connectNulls />
-          )}
-          <Line type="monotone" dataKey="wspd" name="실측 풍속"
-            stroke="#60a5fa" strokeWidth={1.5} dot={false} connectNulls />
+          <Line type="linear" dataKey="wspd" name="실측 풍속"
+            stroke="#60a5fa" strokeWidth={1.5} dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }} connectNulls />
           {hasGust && (
-            <Line type="monotone" dataKey="wgst" name="실측 돌풍"
-              stroke="#f87171" strokeWidth={1} strokeDasharray="3 2" dot={false} connectNulls />
+            <Line type="linear" dataKey="wgst" name="실측 돌풍"
+              stroke="#f87171" strokeWidth={1} strokeDasharray="3 2"
+              dot={{ r: 2, fill: '#f87171', strokeWidth: 0 }} connectNulls />
+          )}
+          {hasTaf && (
+            <Line type="stepAfter" dataKey="taf_wspd" name="TAF 예보"
+              stroke="#f97316" strokeWidth={1.5} strokeDasharray="4 2" dot={false} connectNulls />
           )}
         </ComposedChart>
       </ResponsiveContainer>
@@ -180,31 +180,93 @@ function WindSpeedChart({ data }: { data: ChartPoint[] }) {
   )
 }
 
-// Wind direction dots vs TAF step
-function WindDirChart({ data }: { data: ChartPoint[] }) {
-  const hasTaf = data.some(d => d.taf_wdir !== null)
+// Wind rose — 16방위 원형 차트. 꽃잎 반경 = 빈도, 우세 풍향은 강조색
+const ROSE_SECTORS = 16
+const ROSE_LABELS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
+
+function polar(cx: number, cy: number, r: number, angleDeg: number): [number, number] {
+  const rad = (angleDeg - 90) * (Math.PI / 180) // 0° = 위쪽(N), 시계방향
+  return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)]
+}
+
+function sectorPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
+  if (r <= 0) return ''
+  const [x1, y1] = polar(cx, cy, r, startDeg)
+  const [x2, y2] = polar(cx, cy, r, endDeg)
+  return `M${cx},${cy} L${x1},${y1} A${r},${r} 0 0,1 ${x2},${y2} Z`
+}
+
+function WindRoseChart({ data }: { data: ChartPoint[] }) {
+  const wdirs = data.map(d => d.wdir).filter((v): v is number => v !== null)
+  const sectorWidth = 360 / ROSE_SECTORS
+  const counts = new Array(ROSE_SECTORS).fill(0)
+  for (const wdir of wdirs) {
+    const idx = Math.round(wdir / sectorWidth) % ROSE_SECTORS
+    counts[idx]++
+  }
+  const total = wdirs.length
+  const maxCount = Math.max(...counts, 1)
+  const dominantIdx = counts.indexOf(maxCount)
+  const cx = 70, cy = 70, maxR = 46, minR = 8
+
+  const latest = [...data].reverse().find(d => d.wdir !== null)?.wdir ?? null
+
   return (
-    <ChartCard title="풍향 (°)">
-      <ResponsiveContainer width="100%" height={130}>
-        <ComposedChart data={data} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
-          {GRID}
-          {xAxis(data)}
-          <YAxis domain={[0, 360]} ticks={[0, 90, 180, 270, 360]}
-            tickFormatter={(v: number) => ({ 0: 'N', 90: 'E', 180: 'S', 270: 'W', 360: 'N' }[v] ?? `${v}`)}
-            tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={false} width={24} />
-          <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
-            formatter={(v: any, name: any) => [`${v ?? '—'}°`, name]} />
-          {hasTaf && (
-            <Line type="stepAfter" dataKey="taf_wdir" name="TAF 예보"
-              stroke="#f97316" strokeWidth={1.5} strokeDasharray="4 2" dot={false} connectNulls />
-          )}
-          {/* dots only, no line */}
-          <Line type="linear" dataKey="wdir" name="실측 풍향"
-            stroke="transparent" strokeWidth={0}
-            dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }}
-            activeDot={{ r: 3, fill: '#93c5fd' }} />
-        </ComposedChart>
-      </ResponsiveContainer>
+    <ChartCard title="풍향 분포">
+      {total === 0 ? (
+        <p className="text-xs text-gray-600 text-center py-6">풍향 데이터가 없습니다.</p>
+      ) : (
+        <div className="flex items-center gap-4 py-1">
+          <svg width={140} height={140} viewBox="0 0 140 140" className="shrink-0">
+            {/* 배경 기준 원 (25/50/75/100%) */}
+            {[0.25, 0.5, 0.75, 1].map(f => (
+              <circle key={f} cx={cx} cy={cy} r={maxR * f} fill="none" stroke="#1f2937" strokeWidth={1} />
+            ))}
+            {/* 꽃잎 */}
+            {counts.map((count, i) => {
+              const startDeg = i * sectorWidth - sectorWidth / 2
+              const endDeg = startDeg + sectorWidth
+              const r = count === 0 ? 0 : minR + (maxR - minR) * (count / maxCount)
+              const isDominant = i === dominantIdx && count > 0
+              return (
+                <path key={i} d={sectorPath(cx, cy, r, startDeg, endDeg)}
+                  fill={isDominant ? '#f59e0b' : '#3b82f6'}
+                  fillOpacity={isDominant ? 0.9 : 0.35 + 0.4 * (count / maxCount)}
+                  stroke={isDominant ? '#fbbf24' : '#60a5fa'} strokeWidth={0.5} strokeOpacity={0.6} />
+              )
+            })}
+            {/* 방위 라벨 (N/E/S/W) */}
+            {[0, 90, 180, 270].map(deg => {
+              const [lx, ly] = polar(cx, cy, maxR + 10, deg)
+              return (
+                <text key={deg} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
+                  fontSize={9} fill="#64748b" fontWeight={600}>
+                  {{ 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[deg]}
+                </text>
+              )
+            })}
+            {/* 현재(최신) 풍향 마커 */}
+            {latest !== null && (() => {
+              const [mx, my] = polar(cx, cy, maxR + 4, latest)
+              return <circle cx={mx} cy={my} r={2.5} fill="#fff" stroke="#0f172a" strokeWidth={1} />
+            })()}
+          </svg>
+          <div className="text-[11px] text-gray-400 space-y-1">
+            <div>
+              <span className="text-gray-600">우세 풍향 </span>
+              <span className="font-bold text-amber-400">{ROSE_LABELS[dominantIdx]}</span>
+              <span className="text-gray-600"> ({Math.round(maxCount / total * 100)}%)</span>
+            </div>
+            {latest !== null && (
+              <div>
+                <span className="text-gray-600">최신 </span>
+                <span className="font-semibold text-white">{Math.round(latest)}°</span>
+              </div>
+            )}
+            <div className="text-gray-600">관측 {total}건</div>
+          </div>
+        </div>
+      )}
     </ChartCard>
   )
 }
@@ -223,16 +285,15 @@ function VisChart({ data }: { data: ChartPoint[] }) {
             tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={false} width={36} />
           <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
             formatter={(v: any, name: any) => [v !== null ? visFmt(v) : '—', name]} />
-          {/* CAT I/II/III reference lines */}
+          {/* CAT I reference line (RVR 기준) */}
           <ReferenceLine y={550} stroke="#f87171" strokeDasharray="2 4" strokeWidth={0.8} label={{ value: 'CAT I', fill: '#f87171', fontSize: 8, position: 'insideTopRight' }} />
-          <ReferenceLine y={300} stroke="#fb923c" strokeDasharray="2 4" strokeWidth={0.8} label={{ value: 'CAT II', fill: '#fb923c', fontSize: 8, position: 'insideTopRight' }} />
           {hasTaf && (
             <Area type="stepAfter" dataKey="taf_vis_m" name="TAF 예보"
               stroke="#f97316" strokeWidth={1} strokeDasharray="4 2"
               fill="#f97316" fillOpacity={0.10} dot={false} connectNulls />
           )}
-          <Line type="monotone" dataKey="vis_m" name="실측 시정"
-            stroke="#34d399" strokeWidth={1.5} dot={false} connectNulls />
+          <Line type="linear" dataKey="vis_m" name="실측 시정"
+            stroke="#60a5fa" strokeWidth={1.5} dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }} connectNulls />
         </ComposedChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -250,8 +311,8 @@ function QnhChart({ data }: { data: ChartPoint[] }) {
           {yAxis('hPa', 50)}
           <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
             formatter={(v: any) => [`${v ?? '—'} hPa`, 'QNH']} />
-          <Line type="monotone" dataKey="qnh_hpa" name="QNH"
-            stroke="#a78bfa" strokeWidth={1.5} dot={false} connectNulls />
+          <Line type="linear" dataKey="qnh_hpa" name="실측 QNH"
+            stroke="#60a5fa" strokeWidth={1.5} dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }} connectNulls />
         </ComposedChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -271,15 +332,14 @@ function CeilingChart({ data }: { data: ChartPoint[] }) {
           <YAxis tickFormatter={ceilFmt} tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={false} width={52} />
           <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
             formatter={(v: any, name: any) => [v !== null ? ceilFmt(v) : '—', name]} />
-          <ReferenceLine y={1000} stroke="#facc15" strokeDasharray="2 4" strokeWidth={0.8} label={{ value: 'IFR', fill: '#facc15', fontSize: 8, position: 'insideTopRight' }} />
-          <ReferenceLine y={3000} stroke="#86efac" strokeDasharray="2 4" strokeWidth={0.8} label={{ value: 'VFR', fill: '#86efac', fontSize: 8, position: 'insideTopRight' }} />
+          <ReferenceLine y={200} stroke="#f87171" strokeDasharray="2 4" strokeWidth={0.8} label={{ value: 'CAT I', fill: '#f87171', fontSize: 8, position: 'insideTopRight' }} />
           {hasTaf && (
             <Area type="stepAfter" dataKey="taf_ceiling_ft" name="TAF 예보"
               stroke="#f97316" strokeWidth={1} strokeDasharray="4 2"
               fill="#f97316" fillOpacity={0.10} dot={false} connectNulls />
           )}
-          <Line type="monotone" dataKey="ceiling_ft" name="실측 운고"
-            stroke="#fbbf24" strokeWidth={1.5} dot={false} connectNulls />
+          <Line type="linear" dataKey="ceiling_ft" name="실측 운고"
+            stroke="#60a5fa" strokeWidth={1.5} dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }} connectNulls />
         </ComposedChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -297,10 +357,12 @@ function TempChart({ data }: { data: ChartPoint[] }) {
           {yAxis('°C')}
           <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
             formatter={(v: any, name: any) => [`${v ?? '—'} °C`, name]} />
-          <Area type="monotone" dataKey="temp_c" name="기온"
-            stroke="#fb923c" strokeWidth={1.5} fill="#fb923c" fillOpacity={0.08} dot={false} connectNulls />
-          <Line type="monotone" dataKey="dewpoint_c" name="이슬점"
-            stroke="#22d3ee" strokeWidth={1} strokeDasharray="4 2" dot={false} connectNulls />
+          <Area type="linear" dataKey="temp_c" name="실측 기온"
+            stroke="#60a5fa" strokeWidth={1.5} fill="#60a5fa" fillOpacity={0.08}
+            dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }} connectNulls />
+          <Line type="linear" dataKey="dewpoint_c" name="실측 이슬점"
+            stroke="#22d3ee" strokeWidth={1} strokeDasharray="4 2"
+            dot={{ r: 2, fill: '#22d3ee', strokeWidth: 0 }} connectNulls />
         </ComposedChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -400,17 +462,49 @@ function downloadCsv(filename: string, headers: string[], rows: (string | number
   URL.revokeObjectURL(url)
 }
 
-// ─── TAF summary ────────────────────────────────────────────────────────────
+// ─── Raw METAR / TAF ────────────────────────────────────────────────────────
 
-function TafSummary({ raw, periods }: { raw: string | null; periods: TafPeriod[] }) {
+function MetarBlock({ raw }: { raw: string | null }) {
+  if (!raw) return null
+  return (
+    <div className="text-[10px] bg-gray-900 rounded-lg border border-gray-800 px-3 py-2">
+      <div className="font-semibold text-gray-500 uppercase tracking-wide mb-1">METAR</div>
+      <div className="font-mono text-gray-300 leading-relaxed break-all">{raw}</div>
+    </div>
+  )
+}
+
+// BECMG/TEMPO/PROBnn 그룹마다 줄바꿈 (PROBnn 바로 뒤 TEMPO는 같은 줄로 유지)
+function formatTafLines(raw: string): string[] {
+  const tokens = raw.split(/\s+/).filter(Boolean)
+  const lines: string[][] = []
+  let current: string[] = []
+  for (const tok of tokens) {
+    const isBreakKeyword = tok === 'BECMG' || tok === 'TEMPO' || /^PROB\d{2}$/.test(tok)
+    const prevWasProb = current.length > 0 && /^PROB\d{2}$/.test(current[current.length - 1])
+    if (isBreakKeyword && current.length > 0 && !(tok === 'TEMPO' && prevWasProb)) {
+      lines.push(current)
+      current = [tok]
+    } else {
+      current.push(tok)
+    }
+  }
+  if (current.length > 0) lines.push(current)
+  return lines.map(l => l.join(' '))
+}
+
+function TafBlock({ raw, periods }: { raw: string | null; periods: TafPeriod[] }) {
   const [open, setOpen] = useState(false)
   if (!raw) return null
   return (
-    <div className="text-[10px] bg-gray-900 rounded-lg border border-gray-800 px-3 py-1.5">
-      <button onClick={() => setOpen(v => !v)} className="flex items-center gap-2 w-full text-left text-gray-500 hover:text-gray-300">
-        <span className="font-semibold text-gray-400">TAF 요약</span>
-        <span className="font-mono truncate">{raw.slice(0, 60)}…</span>
-        <span className="ml-auto">{open ? '▲' : '▼'}</span>
+    <div className="text-[10px] bg-gray-900 rounded-lg border border-gray-800 px-3 py-2">
+      <div className="font-semibold text-gray-500 uppercase tracking-wide mb-1">TAF</div>
+      <div className="font-mono text-gray-300 leading-relaxed break-all space-y-0.5">
+        {formatTafLines(raw).map((line, i) => <div key={i}>{line}</div>)}
+      </div>
+      <button onClick={() => setOpen(v => !v)} className="mt-2 flex items-center gap-1 text-gray-600 hover:text-gray-300">
+        <span>구간별 상세</span>
+        <span>{open ? '▲' : '▼'}</span>
       </button>
       {open && (
         <div className="mt-2 space-y-0.5">
@@ -648,15 +742,19 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
 
           {mode === 'history' && <CollectBar status={collectStatus} />}
 
+          {mode === 'realtime' && metarPoints.length > 0 && (
+            <MetarBlock raw={metarPoints[metarPoints.length - 1].raw} />
+          )}
+
           {mode === 'realtime' && trendData?.taf_raw && (
-            <TafSummary raw={trendData.taf_raw} periods={trendData.taf_periods} />
+            <TafBlock raw={trendData.taf_raw} periods={trendData.taf_periods} />
           )}
 
           {/* Charts — 원시 시계열 */}
           {(mode === 'realtime' || histView === 'raw') && chartData.length > 0 && (
             <>
+              <WindRoseChart data={chartData} />
               <WindSpeedChart data={chartData} />
-              <WindDirChart data={chartData} />
               <VisChart data={chartData} />
               <QnhChart data={chartData} />
               <CeilingChart data={chartData} />

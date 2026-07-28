@@ -544,130 +544,169 @@ class NavDataStore:
         'IFR',
     })
 
+    # NAVDATA truncates SID/STAR procedure identifiers to a 4-letter name + suffix
+    # (ARINC 424 computer-code length limit), e.g. real transition fix "EASTE" becomes
+    # "EAST" in NAVDATA's Procedure column — so "EASTE1D" in a Navblue route string only
+    # matches NAVDATA's "EAST1D". Without this fallback, every STAR/SID whose transition
+    # fix name is 5+ letters silently fails to resolve and the route jumps straight from
+    # the last enroute fix to the airport, skipping the whole procedure.
+    _PROC_NAME_RE = re.compile(r'^([A-Z]+)(\d+[A-Z]?)$')
+
+    def _lookup_procedure(self, token: str) -> Optional[List[List[float]]]:
+        pts = self.procedure_lookup.get(token)
+        if pts is not None:
+            return pts
+        m = self._PROC_NAME_RE.match(token)
+        if m:
+            name, suffix = m.groups()
+            if len(name) > 4:
+                return self.procedure_lookup.get(name[:4] + suffix)
+        return None
+
+    def resolve_route_tokens(self, tokens: List[str]) -> Tuple[List[List[float]], Set[str], List[str]]:
+        """Resolve a route-string token list (fix/airway/DCT/SID/STAR, whitespace-split)
+        into a coordinate path + the set of named fixes actually passed through +
+        a list of "WAYPOINT AIRWAY WAYPOINT" legs where the named airway doesn't
+        actually connect those two fixes (silently falls back to a direct line).
+
+        Shared by both stored Navblue routes (_resolve_geometries) and the ad-hoc
+        "type a route string" feature — same parsing rules either way.
+        """
+        raw: List[List[float]] = []
+        passed_fixes: Set[str] = set()
+        airway_gaps: List[str] = []
+        if not tokens:
+            return raw, passed_fixes, airway_gaps
+
+        # Pre-compute max allowable single-leg distance:
+        # use 1.5× the direct OD distance, with a floor of 2000 km
+        origin_cands = self.fix_lookup.get(tokens[0])
+        dest_cands = self.fix_lookup.get(tokens[-1])
+        if origin_cands and dest_cands:
+            od_km = _gc_km(origin_cands[0], dest_cands[0])
+            max_leg_km = max(od_km * 1.5, 2000.0)
+        else:
+            max_leg_km = 5000.0
+
+        # Seed reference point from the first token, if it resolves to a known fix
+        ref: Optional[List[float]] = origin_cands[0][:] if origin_cands else None
+        ref_name: Optional[str] = tokens[0] if origin_cands else None
+        if ref is not None:
+            raw.append(ref[:])
+            passed_fixes.add(tokens[0])
+
+        # ICAO route strings alternate FIX, CONNECTOR(airway/DCT), FIX, CONNECTOR, ...
+        # (SID/STAR procedure names attach directly to their adjacent fix with no
+        # connector). Some enroute fix identifiers collide with unrelated airway
+        # names elsewhere in the dataset (e.g. PUD, NXD, GYA, NOB, BMT, LKH), so we
+        # must disambiguate by *position* in the token stream, not by set membership
+        # alone — otherwise a legitimate fix gets misread as an airway and silently
+        # dropped, leaving a long straight "DCT-looking" gap in the route.
+        #
+        # Procedure names are looked up in fix_lookup too (as a fallback for search),
+        # so a token can be BOTH a real fix and, coincidentally, some unrelated
+        # airport's SID/STAR identifier (e.g. "TNN" is both a VOR and a procedure
+        # name elsewhere). A SID can only legally appear as the token right after
+        # the first fix, and a STAR only as the token right before the last —
+        # anywhere else, a procedure-name match is almost certainly this kind of
+        # collision, so plain-fix resolution must win there.
+        expect_connector = False  # first fix already seeded above
+        pending_airway: Optional[str] = None
+        n_tokens = len(tokens)
+
+        for i, token in enumerate(tokens[1:] if origin_cands else tokens):
+            is_sid_pos = i == 0
+            is_star_pos = i == n_tokens - 3
+
+            if expect_connector:
+                # Connector slot: airway id or DCT — unless a STAR attaches here
+                # directly, in which case it behaves like a fix-slot token too.
+                pts = self._lookup_procedure(token) if is_star_pos else None
+                if pts is not None:
+                    raw.extend(pts)
+                    if pts:
+                        ref = pts[-1][:]
+                        ref_name = None  # procedure endpoint isn't a named fix
+                    expect_connector = False
+                else:
+                    # Remember a real airway so the next fix can be reached by
+                    # following its actual published waypoint chain instead of
+                    # a straight line.
+                    pending_airway = token if token in self.airway_names else None
+                    expect_connector = False
+                continue
+
+            # Fix slot: SID/STAR procedure or a plain fix
+            if token in self._NON_FIX_TOKENS:
+                continue
+
+            proc_pts = self._lookup_procedure(token) if (is_sid_pos or is_star_pos) else None
+            if proc_pts is not None:
+                raw.extend(proc_pts)
+                ref = proc_pts[-1][:]
+                ref_name = None
+                pending_airway = None
+                # Procedure consumed; its terminal fix still follows with no
+                # connector, so stay in the fix slot.
+                continue
+
+            candidates = self.fix_lookup.get(token)
+            if not candidates:
+                coord = _parse_coord_token(token)
+                if coord is not None:
+                    candidates = [[coord[0], coord[1]]]
+            if not candidates and (pts := self._lookup_procedure(token)) is not None:
+                # Not a plain fix anywhere, but does resolve as a procedure even
+                # though it's not in the usual SID/STAR slot — better than dropping
+                # the token entirely.
+                raw.extend(pts)
+                ref = pts[-1][:]
+                ref_name = None
+                pending_airway = None
+                continue
+            if not candidates:
+                if token in self.airway_names and ref_name is not None and pending_airway is None:
+                    # 연결어(DCT) 없이 fix 슬롯에 바로 항공로 이름이 나온 경우 — 저장된
+                    # Navblue 항로 문자열엔 없는 패턴이지만, 사용자가 직접 입력하는
+                    # "waypoint 항공로 waypoint" 형태에선 정상적인 표현이라 커넥터로 취급.
+                    pending_airway = token
+                continue
+
+            # Pick candidate nearest to the current reference point
+            if ref is not None and len(candidates) > 1:
+                chosen = _nearest(candidates, ref)
+            else:
+                chosen = candidates[0]
+
+            # Sanity check: skip if jump is geographically impossible
+            if ref is not None and _gc_km(ref, chosen) > max_leg_km:
+                pending_airway = None
+                continue
+
+            expanded = (
+                self._expand_airway(pending_airway, ref_name, token)
+                if pending_airway and ref_name else None
+            )
+            if expanded and len(expanded) > 2:
+                raw.extend([[f.lon, f.lat] for f in expanded[1:]])
+                ref = [expanded[-1].lon, expanded[-1].lat]
+                passed_fixes.update(f.fix for f in expanded)
+            else:
+                if pending_airway and ref_name and expanded is None:
+                    # 항공로 이름은 유효하지만 이 두 fix를 실제로 잇지는 않음 — 직선으로 대체됨
+                    airway_gaps.append(f"{ref_name} {pending_airway} {token}")
+                raw.append(chosen[:])
+                ref = chosen
+                passed_fixes.add(token)
+            ref_name = token
+            pending_airway = None
+            expect_connector = True
+
+        return _fix_antimeridian(raw), passed_fixes, airway_gaps
+
     def _resolve_geometries(self) -> None:
         for route in self.routes:
-            raw: List[List[float]] = []
-
-            # Pre-compute max allowable single-leg distance:
-            # use 1.5× the direct OD distance, with a floor of 2000 km
-            origin_cands = self.fix_lookup.get(route.origin)
-            dest_cands = self.fix_lookup.get(route.destination)
-            if origin_cands and dest_cands:
-                od_km = _gc_km(origin_cands[0], dest_cands[0])
-                max_leg_km = max(od_km * 1.5, 2000.0)
-            else:
-                max_leg_km = 5000.0
-
-            # Seed reference point from origin airport
-            ref: Optional[List[float]] = origin_cands[0][:] if origin_cands else None
-            ref_name: Optional[str] = route.origin if origin_cands else None
-            if ref is not None:
-                raw.append(ref[:])
-                route.passed_fixes.add(route.origin)
-
-            # ICAO route strings alternate FIX, CONNECTOR(airway/DCT), FIX, CONNECTOR, ...
-            # (SID/STAR procedure names attach directly to their adjacent fix with no
-            # connector). Some enroute fix identifiers collide with unrelated airway
-            # names elsewhere in the dataset (e.g. PUD, NXD, GYA, NOB, BMT, LKH), so we
-            # must disambiguate by *position* in the token stream, not by set membership
-            # alone — otherwise a legitimate fix gets misread as an airway and silently
-            # dropped, leaving a long straight "DCT-looking" gap in the route.
-            #
-            # Procedure names are looked up in fix_lookup too (as a fallback for search),
-            # so a token can be BOTH a real fix and, coincidentally, some unrelated
-            # airport's SID/STAR identifier (e.g. "TNN" is both a VOR and a procedure
-            # name elsewhere). A SID can only legally appear as the token right after
-            # the origin, and a STAR only as the token right before the destination —
-            # anywhere else, a procedure-name match is almost certainly this kind of
-            # collision, so plain-fix resolution must win there.
-            expect_connector = False  # first fix (origin airport) already seeded above
-            pending_airway: Optional[str] = None
-            n_tokens = len(route.tokens)
-
-            for i, token in enumerate(route.tokens[1:] if origin_cands else route.tokens):
-                is_sid_pos = i == 0
-                is_star_pos = i == n_tokens - 3
-
-                if expect_connector:
-                    # Connector slot: airway id or DCT — unless a STAR attaches here
-                    # directly, in which case it behaves like a fix-slot token too.
-                    if is_star_pos and token in self.procedure_lookup:
-                        pts = self.procedure_lookup[token]
-                        raw.extend(pts)
-                        if pts:
-                            ref = pts[-1][:]
-                            ref_name = None  # procedure endpoint isn't a named fix
-                        expect_connector = False
-                    else:
-                        # Remember a real airway so the next fix can be reached by
-                        # following its actual published waypoint chain instead of
-                        # a straight line.
-                        pending_airway = token if token in self.airway_names else None
-                        expect_connector = False
-                    continue
-
-                # Fix slot: SID/STAR procedure or a plain fix
-                if token in self._NON_FIX_TOKENS:
-                    continue
-
-                if (is_sid_pos or is_star_pos) and token in self.procedure_lookup:
-                    pts = self.procedure_lookup[token]
-                    raw.extend(pts)
-                    if pts:
-                        ref = pts[-1][:]
-                        ref_name = None
-                    pending_airway = None
-                    # Procedure consumed; its terminal fix still follows with no
-                    # connector, so stay in the fix slot.
-                    continue
-
-                candidates = self.fix_lookup.get(token)
-                if not candidates:
-                    coord = _parse_coord_token(token)
-                    if coord is not None:
-                        candidates = [[coord[0], coord[1]]]
-                if not candidates and token in self.procedure_lookup:
-                    # Not a plain fix anywhere, but does resolve as a procedure even
-                    # though it's not in the usual SID/STAR slot — better than dropping
-                    # the token entirely.
-                    pts = self.procedure_lookup[token]
-                    raw.extend(pts)
-                    if pts:
-                        ref = pts[-1][:]
-                        ref_name = None
-                    pending_airway = None
-                    continue
-                if not candidates:
-                    continue
-
-                # Pick candidate nearest to the current reference point
-                if ref is not None and len(candidates) > 1:
-                    chosen = _nearest(candidates, ref)
-                else:
-                    chosen = candidates[0]
-
-                # Sanity check: skip if jump is geographically impossible
-                if ref is not None and _gc_km(ref, chosen) > max_leg_km:
-                    pending_airway = None
-                    continue
-
-                expanded = (
-                    self._expand_airway(pending_airway, ref_name, token)
-                    if pending_airway and ref_name else None
-                )
-                if expanded and len(expanded) > 2:
-                    raw.extend([[f.lon, f.lat] for f in expanded[1:]])
-                    ref = [expanded[-1].lon, expanded[-1].lat]
-                    route.passed_fixes.update(f.fix for f in expanded)
-                else:
-                    raw.append(chosen[:])
-                    ref = chosen
-                    route.passed_fixes.add(token)
-                ref_name = token
-                pending_airway = None
-                expect_connector = True
-
-            route.coordinates = _fix_antimeridian(raw)
+            route.coordinates, route.passed_fixes, _ = self.resolve_route_tokens(route.tokens)
 
     def _build_route_indexes(self) -> None:
         for route in self.routes:
@@ -734,6 +773,12 @@ class NavDataStore:
                         "fixes": [f.fix for f in seg_fixes],
                     },
                 })
+        return {"type": "FeatureCollection", "features": features}
+
+    def all_airways_geojson(self) -> dict:
+        features = []
+        for name in self.airways:
+            features.extend(self.airway_geojson(name)["features"])
         return {"type": "FeatureCollection", "features": features}
 
 

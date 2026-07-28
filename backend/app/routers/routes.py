@@ -18,10 +18,10 @@ def _route_meta(r):
     }
 
 
-def _route_waypoints(r):
+def _waypoints_from_fixes(passed_fixes):
     """이 항로가 실제로 지나는 named waypoint 목록 (출발/도착 공항 제외)."""
     wps = []
-    for fix in sorted(r.passed_fixes):
+    for fix in sorted(passed_fixes):
         wp = store.waypoints.get(fix)
         if wp:
             wps.append({"id": wp.id, "lat": wp.lat, "lon": wp.lon})
@@ -34,7 +34,7 @@ def _route_feature(r):
     return {
         "type": "Feature",
         "geometry": {"type": "LineString", "coordinates": r.coordinates},
-        "properties": {**_route_meta(r), "waypoints": _route_waypoints(r)},
+        "properties": {**_route_meta(r), "waypoints": _waypoints_from_fixes(r.passed_fixes)},
     }
 
 
@@ -88,6 +88,28 @@ def get_alternatives(
                     features.append(f)
 
     return {"type": "FeatureCollection", "features": features}
+
+
+@router.get("/parse")
+def parse_route_string(route: str = Query(..., description="공백으로 구분된 항로 문자열, 예: RKSI Y711 GTC DCT RKSS")):
+    """SkyVector처럼 직접 입력한 항로 문자열을 그 자리에서 파싱해 geometry로 반환 (저장된 항로 DB 조회 아님)."""
+    tokens = route.strip().upper().split()
+    coords, passed_fixes, airway_gaps = store.resolve_route_tokens(tokens)
+    if len(coords) < 2:
+        return {"type": "FeatureCollection", "features": [], "unresolved": tokens, "airway_gaps": []}
+    resolved_names = passed_fixes | {tokens[0], tokens[-1]}
+    unresolved = [t for t in tokens if t not in resolved_names and t not in store.airway_names
+                  and t != "DCT" and store._lookup_procedure(t) is None]
+    return {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": {"type": "LineString", "coordinates": coords},
+            "properties": {"route": route.strip().upper(), "waypoints": _waypoints_from_fixes(passed_fixes)},
+        }],
+        "airway_gaps": airway_gaps,
+        "unresolved": unresolved,
+    }
 
 
 @router.get("/origins")

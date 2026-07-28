@@ -23,7 +23,7 @@ export default function WeatherAlertToast() {
   }
 
   return (
-    <div className="absolute top-4 right-4 z-50 flex flex-col w-80 pointer-events-none" style={{ maxHeight: 'calc(100vh - 2rem)' }}>
+    <div className="flex flex-col w-80 pointer-events-none min-h-0" style={{ maxHeight: 'calc(100vh - 6rem)' }}>
       {/* 헤더 */}
       <div className="pointer-events-auto flex items-center justify-between px-1 pb-1 shrink-0">
         <span className="text-[10px] text-gray-500">{alerts.length}개 알림</span>

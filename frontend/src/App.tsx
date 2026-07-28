@@ -12,6 +12,7 @@ import AirportPanel from './components/AirportPanel'
 import CurfewPanel from './components/CurfewPanel'
 import WeatherThresholdModal from './components/WeatherThresholdModal'
 import AirportMinimumsTable from './components/AirportMinimumsTable'
+import AdHocRouteInput from './components/AdHocRouteInput'
 import PermitApp from './permits/PermitApp'
 
 export default function App() {
@@ -71,11 +72,16 @@ export default function App() {
         <MapView />
         <RightPanel />
         <RouteComparePanel />
-        <WeatherAlertToast />
         <AirportPanel />
         <CurfewPanel />
         <WeatherThresholdModal />
         {minimumsOpen && <AirportMinimumsTable onClose={() => setMinimumsOpen(false)} />}
+
+        {/* Top-right stack: 항로 입력 위, 날씨 알림 아래 — 같은 자리 겹침 방지 */}
+        <div className="absolute top-4 right-4 z-40 flex flex-col items-end gap-2">
+          <AdHocRouteInput />
+          <WeatherAlertToast />
+        </div>
 
         {/* Top-left action buttons */}
         <div className="absolute top-4 left-4 z-20 flex items-center gap-2">

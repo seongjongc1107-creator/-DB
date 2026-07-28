@@ -240,7 +240,8 @@ export interface LayerState {
   routes: boolean        // navblue 저장 항로
   airports: boolean
   waypoints: boolean
-  activeAirway: boolean  // airway 자체 경로 (navdata 기하, 점선)
+  allAirways: boolean    // 전 세계 airway 배경 표시 (waypoints와 같은 성격)
+  activeAirway: boolean  // 검색으로 찾은 airway 1개 강조 (navdata 기하, 점선)
   matchedRoutes: boolean // airway 검색으로 찾은 navblue 항로 (실선)
   typhoon: boolean
   fir: boolean
@@ -254,6 +255,7 @@ export interface AppState {
   destination: string
   // Active search/selection
   selectedRouteIds: number[]
+  hoveredRouteId: number | null  // 목록(우클릭 메뉴/사이드바)에서 마우스오버 중인 항로 — 지도에 노란색으로 강조
   activeAirway: string | null
   activeWaypoint: string | null
   // 공간 필터(태풍 등)와 교차하는 항로 id — 목록에서 정렬/강조용, allRoutes는 그대로 유지
@@ -265,6 +267,8 @@ export interface AppState {
   airwayGeoJSON: GeoJSONFeatureCollection | null
   matchedRoutesGeoJSON: GeoJSONFeatureCollection | null  // airway 검색 매칭 항로 geometry
   waypointsGeoJSON: GeoJSONFeatureCollection | null
+  allAirwaysGeoJSON: GeoJSONFeatureCollection | null
+  adhocRouteGeoJSON: GeoJSONFeatureCollection | null  // 직접 타이핑한 항로 문자열 (SkyVector 스타일) 결과
   // Layer visibility
   layers: LayerState
   // Spatial search
@@ -312,6 +316,8 @@ export type AppAction =
   | { type: 'SET_ORIGIN'; payload: string }
   | { type: 'SET_DESTINATION'; payload: string }
   | { type: 'SET_SELECTED_ROUTES'; payload: number[] }
+  | { type: 'TOGGLE_SELECTED_ROUTE'; payload: number }
+  | { type: 'SET_HOVERED_ROUTE'; payload: number | null }
   | { type: 'SET_AFFECTED_ROUTES'; payload: number[] }
   | { type: 'SET_ACTIVE_AIRWAY'; payload: string | null }
   | { type: 'SET_ACTIVE_WAYPOINT'; payload: string | null }
@@ -321,6 +327,8 @@ export type AppAction =
   | { type: 'SET_AIRWAY_GEOJSON'; payload: GeoJSONFeatureCollection | null }
   | { type: 'SET_MATCHED_ROUTES_GEOJSON'; payload: GeoJSONFeatureCollection | null }
   | { type: 'SET_WAYPOINTS_GEOJSON'; payload: GeoJSONFeatureCollection | null }
+  | { type: 'SET_ALL_AIRWAYS_GEOJSON'; payload: GeoJSONFeatureCollection | null }
+  | { type: 'SET_ADHOC_ROUTE_GEOJSON'; payload: GeoJSONFeatureCollection | null }
   | { type: 'TOGGLE_LAYER'; payload: keyof LayerState }
   | { type: 'SET_SEARCH_RESULTS'; payload: SearchResult[] }
   | { type: 'SET_LOADING'; payload: boolean }

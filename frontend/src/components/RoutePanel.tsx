@@ -190,16 +190,7 @@ export default function RoutePanel() {
 
   // 최대 2개까지 선택(비교용). 3번째를 고르면 가장 먼저 고른 걸 밀어냄.
   function toggleRouteSelect(id: number) {
-    const current = state.selectedRouteIds
-    let next: number[]
-    if (current.includes(id)) {
-      next = current.filter(x => x !== id)
-    } else if (current.length >= 2) {
-      next = [current[1], id]
-    } else {
-      next = [...current, id]
-    }
-    dispatch({ type: 'SET_SELECTED_ROUTES', payload: next })
+    dispatch({ type: 'TOGGLE_SELECTED_ROUTE', payload: id })
   }
 
   function exportCsv() {
@@ -334,8 +325,12 @@ export default function RoutePanel() {
                   onMouseEnter={e => {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
                     setRouteTooltip({ x: rect.right + 8, y: rect.top, text: r.route })
+                    dispatch({ type: 'SET_HOVERED_ROUTE', payload: r.id })
                   }}
-                  onMouseLeave={() => setRouteTooltip(null)}
+                  onMouseLeave={() => {
+                    setRouteTooltip(null)
+                    dispatch({ type: 'SET_HOVERED_ROUTE', payload: null })
+                  }}
                 >
                   <div className="flex items-center gap-1.5">
                     {isSelected && (

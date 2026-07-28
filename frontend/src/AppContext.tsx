@@ -6,6 +6,7 @@ const initialState: AppState = {
   origin: '',
   destination: '',
   selectedRouteIds: [],
+  hoveredRouteId: null,
   affectedRouteIds: [],
   activeAirway: null,
   activeWaypoint: null,
@@ -15,10 +16,13 @@ const initialState: AppState = {
   airwayGeoJSON: null,
   matchedRoutesGeoJSON: null,
   waypointsGeoJSON: null,
+  allAirwaysGeoJSON: null,
+  adhocRouteGeoJSON: null,
   layers: {
     routes: true,
     airports: true,
     waypoints: false,
+    allAirways: false,
     activeAirway: false,
     matchedRoutes: true,
     typhoon: true,
@@ -65,6 +69,18 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, destination: action.payload }
     case 'SET_SELECTED_ROUTES':
       return { ...state, selectedRouteIds: action.payload }
+    case 'TOGGLE_SELECTED_ROUTE': {
+      // 최대 2개까지 선택(비교용). 이미 선택된 걸 누르면 해제, 3번째를 고르면 가장 먼저 고른 걸 밀어냄.
+      const current = state.selectedRouteIds
+      const id = action.payload
+      let next: number[]
+      if (current.includes(id)) next = current.filter(x => x !== id)
+      else if (current.length >= 2) next = [current[1], id]
+      else next = [...current, id]
+      return { ...state, selectedRouteIds: next }
+    }
+    case 'SET_HOVERED_ROUTE':
+      return { ...state, hoveredRouteId: action.payload }
     case 'SET_AFFECTED_ROUTES':
       return { ...state, affectedRouteIds: action.payload }
     case 'SET_ACTIVE_AIRWAY':
@@ -98,6 +114,10 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, matchedRoutesGeoJSON: action.payload }
     case 'SET_WAYPOINTS_GEOJSON':
       return { ...state, waypointsGeoJSON: action.payload }
+    case 'SET_ALL_AIRWAYS_GEOJSON':
+      return { ...state, allAirwaysGeoJSON: action.payload }
+    case 'SET_ADHOC_ROUTE_GEOJSON':
+      return { ...state, adhocRouteGeoJSON: action.payload }
     case 'TOGGLE_LAYER':
       return {
         ...state,

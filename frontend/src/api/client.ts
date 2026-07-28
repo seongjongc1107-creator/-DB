@@ -24,12 +24,15 @@ export const api = {
     destinations: () => get<string[]>('/routes/destinations'),
     alternatives: (odPairs: string, excludeIds: string) =>
       get<GeoJSONFeatureCollection>('/routes/alternatives', { od_pairs: odPairs, exclude_ids: excludeIds }),
+    parse: (route: string) =>
+      get<GeoJSONFeatureCollection & { unresolved: string[]; airway_gaps: string[] }>('/routes/parse', { route }),
   },
   navdata: {
     fir: () => get<GeoJSONFeatureCollection>('/navdata/fir'),
     airports: () => get<GeoJSONFeatureCollection>('/navdata/airports'),
     airportDetail: (icao: string) => get<AirportDetail>(`/navdata/airport/${encodeURIComponent(icao)}`),
     airway: (name: string) => get<GeoJSONFeatureCollection>(`/navdata/airways/${encodeURIComponent(name)}`),
+    allAirways: () => get<GeoJSONFeatureCollection>('/navdata/airways'),
     airwayRoutes: (name: string) =>
       get<{ count: number; routes: RouteMeta[] }>(`/navdata/airways/${encodeURIComponent(name)}/routes`),
     waypoints: (limit = 50000) =>

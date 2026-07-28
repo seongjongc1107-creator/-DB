@@ -137,10 +137,16 @@ def _parse_metar(raw: dict) -> dict:
 def _ddhh_to_dt(ddhh: str, ref: datetime) -> datetime:
     dd, hh = int(ddhh[:2]), int(ddhh[2:4])
     ref_utc = ref if ref.tzinfo else ref.replace(tzinfo=timezone.utc)
+    # TAF는 그날 자정을 "24시"로 표기하기도 함 (다음날 00Z와 동일) — datetime엔 없는 시각이라 별도 처리
+    extra_day = hh == 24
+    if extra_day:
+        hh = 0
     try:
         dt = ref_utc.replace(day=dd, hour=hh, minute=0, second=0, microsecond=0)
     except ValueError:
         dt = ref_utc.replace(day=1, hour=hh, minute=0, second=0, microsecond=0)
+    if extra_day:
+        dt += timedelta(days=1)
     if dt < ref_utc - timedelta(days=20):
         m = ref_utc.month % 12 + 1
         y = ref_utc.year + (1 if ref_utc.month == 12 else 0)

@@ -91,6 +91,11 @@ def get_airports():
     return {"type": "FeatureCollection", "features": features}
 
 
+@router.get("/airways")
+def get_all_airways():
+    return store.all_airways_geojson()
+
+
 @router.get("/airways/{name}")
 def get_airway(name: str):
     return store.airway_geojson(name)
