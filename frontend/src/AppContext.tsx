@@ -22,7 +22,7 @@ const initialState: AppState = {
     activeAirway: false,
     matchedRoutes: true,
     typhoon: true,
-    fir: true,
+    fir: false,
     curfew: true,
     traffic: false,
   },

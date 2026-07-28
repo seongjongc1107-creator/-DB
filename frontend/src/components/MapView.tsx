@@ -116,6 +116,14 @@ export default function MapView() {
     return () => clearInterval(id)
   }, [state.layers.traffic, dispatch])
 
+  // Waypoints 레이어를 처음 켤 때 전 세계 waypoint를 한 번만 불러옴
+  useEffect(() => {
+    if (!state.layers.waypoints || state.waypointsGeoJSON) return
+    api.navdata.waypoints().then(data => {
+      dispatch({ type: 'SET_WAYPOINTS_GEOJSON', payload: data })
+    })
+  }, [state.layers.waypoints, state.waypointsGeoJSON, dispatch])
+
   // Convert traffic to GeoJSON
   const trafficGeoJSON = useMemo(() => ({
     type: 'FeatureCollection' as const,
@@ -506,6 +514,19 @@ export default function MapView() {
     }
   }, [selectedIds, state.matchedRoutesGeoJSON, routeData])
 
+  // ── 선택된 항로가 지나는 waypoint (줌 레벨/Waypoints 레이어 토글과 무관하게 항상 표시) ──
+  const selectedRouteWaypointsData = useMemo(() => {
+    const features = selectedRouteHighlightData.features.flatMap(f => {
+      const wps = (f.properties?.waypoints as { id: string; lat: number; lon: number }[] | undefined) ?? []
+      return wps.map(w => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [w.lon, w.lat] },
+        properties: { id: w.id },
+      }))
+    })
+    return { type: 'FeatureCollection' as const, features }
+  }, [selectedRouteHighlightData])
+
   // ── 우클릭 겹친 항로 목록 호버 강조 ──
   const hoveredListRouteData = useMemo(() => {
     if (hoveredListRouteId === null) return EMPTY_FC
@@ -546,13 +567,13 @@ export default function MapView() {
               id="fir-fill"
               type="fill"
               layout={{ visibility: state.layers.fir ? 'visible' : 'none' }}
-              paint={{ 'fill-color': '#22D3EE', 'fill-opacity': 0.05 }}
+              paint={{ 'fill-color': '#94A3B8', 'fill-opacity': 0.03 }}
             />
             <Layer
               id="fir-line"
               type="line"
               layout={{ visibility: state.layers.fir ? 'visible' : 'none' }}
-              paint={{ 'line-color': '#22D3EE', 'line-width': 2, 'line-opacity': 0.9 }}
+              paint={{ 'line-color': '#94A3B8', 'line-width': 1.2, 'line-opacity': 0.55 }}
             />
             <Layer
               id="fir-label"
@@ -561,10 +582,10 @@ export default function MapView() {
                 visibility: state.layers.fir ? 'visible' : 'none',
                 'text-field': ['get', 'icao'],
                 'text-font': ['Noto Sans Regular'],
-                'text-size': 14,
+                'text-size': 12,
                 'text-anchor': 'center',
               }}
-              paint={{ 'text-color': '#22D3EE', 'text-opacity': 0.9, 'text-halo-color': '#000', 'text-halo-width': 2 }}
+              paint={{ 'text-color': '#94A3B8', 'text-opacity': 0.75, 'text-halo-color': '#0F172A', 'text-halo-width': 1.2 }}
             />
           </Source>
         )}
@@ -711,6 +732,33 @@ export default function MapView() {
               'line-width': 2.2,
               'line-opacity': 1,
             }}
+          />
+        </Source>
+
+        {/* ── 선택된 항로가 지나는 waypoint — 줌/레이어 토글과 무관하게 항상 표시 ── */}
+        <Source id="selected-route-waypoints" type="geojson" data={selectedRouteWaypointsData}>
+          <Layer
+            id="selected-route-waypoints-circle"
+            type="circle"
+            paint={{
+              'circle-radius': 3.5,
+              'circle-color': '#fff',
+              'circle-stroke-color': '#F97316',
+              'circle-stroke-width': 1.5,
+            }}
+          />
+          <Layer
+            id="selected-route-waypoints-label"
+            type="symbol"
+            layout={{
+              'text-field': ['get', 'id'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 10,
+              'text-offset': [0, 1],
+              'text-anchor': 'top',
+              'text-allow-overlap': false,
+            }}
+            paint={{ 'text-color': '#FDBA74', 'text-halo-color': '#111827', 'text-halo-width': 1.2 }}
           />
         </Source>
 

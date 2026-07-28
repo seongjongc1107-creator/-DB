@@ -18,13 +18,23 @@ def _route_meta(r):
     }
 
 
+def _route_waypoints(r):
+    """이 항로가 실제로 지나는 named waypoint 목록 (출발/도착 공항 제외)."""
+    wps = []
+    for fix in sorted(r.passed_fixes):
+        wp = store.waypoints.get(fix)
+        if wp:
+            wps.append({"id": wp.id, "lat": wp.lat, "lon": wp.lon})
+    return wps
+
+
 def _route_feature(r):
     if len(r.coordinates) < 2:
         return None
     return {
         "type": "Feature",
         "geometry": {"type": "LineString", "coordinates": r.coordinates},
-        "properties": _route_meta(r),
+        "properties": {**_route_meta(r), "waypoints": _route_waypoints(r)},
     }
 
 

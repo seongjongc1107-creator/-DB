@@ -32,11 +32,8 @@ export const api = {
     airway: (name: string) => get<GeoJSONFeatureCollection>(`/navdata/airways/${encodeURIComponent(name)}`),
     airwayRoutes: (name: string) =>
       get<{ count: number; routes: RouteMeta[] }>(`/navdata/airways/${encodeURIComponent(name)}/routes`),
-    waypoints: (bbox?: { minLat: number; maxLat: number; minLon: number; maxLon: number }) =>
-      get<GeoJSONFeatureCollection>('/navdata/waypoints', bbox ? {
-        minLat: String(bbox.minLat), maxLat: String(bbox.maxLat),
-        minLon: String(bbox.minLon), maxLon: String(bbox.maxLon),
-      } : undefined),
+    waypoints: (limit = 50000) =>
+      get<GeoJSONFeatureCollection>('/navdata/waypoints', { limit: String(limit) }),
   },
   traffic: {
     fetch: () => get<{ aircraft: AircraftState[]; count: number; jja_count: number; updated: number; error?: string; cached?: boolean }>('/traffic/'),

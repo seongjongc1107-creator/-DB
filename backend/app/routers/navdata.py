@@ -122,7 +122,7 @@ def get_waypoints(
     maxLat: Optional[float] = None,
     minLon: Optional[float] = None,
     maxLon: Optional[float] = None,
-    limit: int = Query(500, le=2000),
+    limit: int = Query(500, le=50000),
 ):
     wps = list(store.waypoints.values())
     if all(x is not None for x in [minLat, maxLat, minLon, maxLon]):
