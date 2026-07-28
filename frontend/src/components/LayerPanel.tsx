@@ -5,11 +5,11 @@ import type { LayerState } from '../types'
 const LAYER_CONFIG: { key: keyof LayerState; label: string; color: string }[] = [
   { key: 'routes',        label: 'Navblue 항로',    color: 'bg-blue-500' },
   { key: 'airports',      label: '공항 (Airports)', color: 'bg-red-500' },
-  { key: 'waypoints',     label: 'Waypoints',       color: 'bg-gray-400' },
+  { key: 'waypoints',     label: 'Waypoints',       color: 'bg-gray-500' },
   { key: 'activeAirway',  label: 'Airway 경로',     color: 'bg-yellow-400' },
-  { key: 'matchedRoutes', label: '검색 결과 항로',  color: 'bg-green-500' },
+  { key: 'matchedRoutes', label: '검색 결과 항로',  color: 'bg-emerald-500' },
   { key: 'typhoon',       label: '태풍 구역',       color: 'bg-orange-500' },
-  { key: 'fir',           label: 'FIR 경계',        color: 'bg-cyan-400' },
+  { key: 'fir',           label: 'FIR 경계',        color: 'bg-slate-400' },
 ]
 
 export default function LayerPanel() {
