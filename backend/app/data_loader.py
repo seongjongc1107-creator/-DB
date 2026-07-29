@@ -9,7 +9,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 NAVDATA_CSV = DATA_DIR / "NAVDATA.csv"
@@ -99,7 +99,7 @@ class Route:
     # tokens에는 없지만 airway 구간을 펼치면서 실제로 지나가는 중간 fix 이름들.
     # waypoint 검색(route_by_token)이 이걸 놓치면 "W4를 타는 항로"는 찾아도
     # "W4 안의 FATAN을 지나는 항로"는 못 찾는 문제가 생김.
-    passed_fixes: Set[str] = field(default_factory=set)
+    passed_fixes: Dict[str, List[float]] = field(default_factory=dict)  # fix name → resolved [lon, lat]
 
 
 # ---------------------------------------------------------------------------
@@ -552,7 +552,7 @@ class NavDataStore:
     # the last enroute fix to the airport, skipping the whole procedure.
     _PROC_NAME_RE = re.compile(r'^([A-Z]+)(\d+[A-Z]?)$')
 
-    def _lookup_procedure(self, token: str) -> Optional[List[List[float]]]:
+    def _lookup_procedure(self, token: str, near: Optional[List[float]] = None) -> Optional[List[List[float]]]:
         pts = self.procedure_lookup.get(token)
         if pts is not None:
             return pts
@@ -560,10 +560,18 @@ class NavDataStore:
         if m:
             name, suffix = m.groups()
             if len(name) > 4:
-                return self.procedure_lookup.get(name[:4] + suffix)
+                candidate = self.procedure_lookup.get(name[:4] + suffix)
+                if candidate is None:
+                    return None
+                # 잘린 이름만으로 찾은 매칭이라, 완전히 무관한 다른 공항의 절차와
+                # 우연히 이름이 같은 경우(예: ENBAX1B→ENBA1B가 딴 나라 절차와 충돌)가
+                # 있을 수 있음 — 현재 위치에서 비현실적으로 멀면 오탐으로 보고 버림.
+                if near is not None and _gc_km(near, candidate[0]) > 1500:
+                    return None
+                return candidate
         return None
 
-    def resolve_route_tokens(self, tokens: List[str]) -> Tuple[List[List[float]], Set[str], List[str]]:
+    def resolve_route_tokens(self, tokens: List[str]) -> Tuple[List[List[float]], Dict[str, List[float]], List[str]]:
         """Resolve a route-string token list (fix/airway/DCT/SID/STAR, whitespace-split)
         into a coordinate path + the set of named fixes actually passed through +
         a list of "WAYPOINT AIRWAY WAYPOINT" legs where the named airway doesn't
@@ -573,7 +581,7 @@ class NavDataStore:
         "type a route string" feature — same parsing rules either way.
         """
         raw: List[List[float]] = []
-        passed_fixes: Set[str] = set()
+        passed_fixes: Dict[str, List[float]] = {}
         airway_gaps: List[str] = []
         if not tokens:
             return raw, passed_fixes, airway_gaps
@@ -593,7 +601,7 @@ class NavDataStore:
         ref_name: Optional[str] = tokens[0] if origin_cands else None
         if ref is not None:
             raw.append(ref[:])
-            passed_fixes.add(tokens[0])
+            passed_fixes[tokens[0]] = ref[:]
 
         # ICAO route strings alternate FIX, CONNECTOR(airway/DCT), FIX, CONNECTOR, ...
         # (SID/STAR procedure names attach directly to their adjacent fix with no
@@ -621,7 +629,7 @@ class NavDataStore:
             if expect_connector:
                 # Connector slot: airway id or DCT — unless a STAR attaches here
                 # directly, in which case it behaves like a fix-slot token too.
-                pts = self._lookup_procedure(token) if is_star_pos else None
+                pts = self._lookup_procedure(token, near=ref) if is_star_pos else None
                 if pts is not None:
                     raw.extend(pts)
                     if pts:
@@ -640,7 +648,7 @@ class NavDataStore:
             if token in self._NON_FIX_TOKENS:
                 continue
 
-            proc_pts = self._lookup_procedure(token) if (is_sid_pos or is_star_pos) else None
+            proc_pts = self._lookup_procedure(token, near=ref) if (is_sid_pos or is_star_pos) else None
             if proc_pts is not None:
                 raw.extend(proc_pts)
                 ref = proc_pts[-1][:]
@@ -655,7 +663,7 @@ class NavDataStore:
                 coord = _parse_coord_token(token)
                 if coord is not None:
                     candidates = [[coord[0], coord[1]]]
-            if not candidates and (pts := self._lookup_procedure(token)) is not None:
+            if not candidates and (pts := self._lookup_procedure(token, near=ref)) is not None:
                 # Not a plain fix anywhere, but does resolve as a procedure even
                 # though it's not in the usual SID/STAR slot — better than dropping
                 # the token entirely.
@@ -690,14 +698,14 @@ class NavDataStore:
             if expanded and len(expanded) > 2:
                 raw.extend([[f.lon, f.lat] for f in expanded[1:]])
                 ref = [expanded[-1].lon, expanded[-1].lat]
-                passed_fixes.update(f.fix for f in expanded)
+                passed_fixes.update({f.fix: [f.lon, f.lat] for f in expanded})
             else:
                 if pending_airway and ref_name and expanded is None:
                     # 항공로 이름은 유효하지만 이 두 fix를 실제로 잇지는 않음 — 직선으로 대체됨
                     airway_gaps.append(f"{ref_name} {pending_airway} {token}")
                 raw.append(chosen[:])
                 ref = chosen
-                passed_fixes.add(token)
+                passed_fixes[token] = chosen[:]
             ref_name = token
             pending_airway = None
             expect_connector = True

@@ -8,7 +8,7 @@ import type { SearchResult } from '../types'
 const TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: string; textColor: string; chipColor: string }> = {
   airway:  { label: 'AWY', icon: <Route size={10} />,     color: 'bg-orange-900/60',  textColor: 'text-orange-300', chipColor: 'bg-orange-900/40 border-orange-700 text-orange-300' },
   airport: { label: 'APT', icon: <Building2 size={10} />, color: 'bg-red-900/60',     textColor: 'text-red-300',    chipColor: 'bg-red-900/40 border-red-700 text-red-300'    },
-  waypoint:{ label: 'WPT', icon: <MapPin size={10} />,    color: 'bg-gray-700/80',    textColor: 'text-gray-300',   chipColor: 'bg-cyan-900/40 border-cyan-700 text-cyan-300'   },
+  waypoint:{ label: 'WPT', icon: <MapPin size={10} />,    color: 'bg-gray-700/80',    textColor: 'text-gray-300',   chipColor: 'bg-[#C08497]/20 border-[#C08497] text-[#D8A8B5]' },
   route:   { label: 'RTE', icon: <Hash size={10} />,      color: 'bg-blue-900/60',    textColor: 'text-blue-300',   chipColor: 'bg-blue-900/40 border-blue-700 text-blue-300'   },
 }
 
@@ -161,8 +161,29 @@ export default function SearchBar() {
     }
   }
 
-  function removeHighlight(id: string) {
+  function removeHighlight(id: string, type: SearchResult['type']) {
     dispatch({ type: 'REMOVE_HIGHLIGHT', payload: id })
+    const remaining = state.highlightPoints.filter(h => h.id !== id)
+    if (remaining.length === 0) {
+      // 마지막 검색 결과였으면 지도에 남은 관련 표시(항로선/waypoint/매칭 항로)도 같이 지움
+      dispatch({ type: 'CLEAR_AIRWAY_ENDPOINTS' })
+      dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
+      dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
+      dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: null })
+      dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: null })
+      return
+    }
+    if (type === 'airway') {
+      // 이 airway만 지도에서 제거 (같이 검색해둔 다른 airway는 유지)
+      const filtered = {
+        type: 'FeatureCollection' as const,
+        features: (state.airwayGeoJSON?.features ?? []).filter(f => f.properties?.airway !== id),
+      }
+      dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: filtered })
+      if (state.activeAirway === id) dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
+    } else if (type === 'waypoint' && state.activeWaypoint === id) {
+      dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
+    }
   }
 
   function clear() {
@@ -217,7 +238,7 @@ export default function SearchBar() {
                 {meta.icon}
                 {h.name}
                 <button
-                  onClick={() => removeHighlight(h.id)}
+                  onClick={() => removeHighlight(h.id, h.type)}
                   className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
                 >
                   <X size={9} />

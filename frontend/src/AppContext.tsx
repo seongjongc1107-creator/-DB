@@ -70,12 +70,15 @@ function reducer(state: AppState, action: AppAction): AppState {
     case 'SET_SELECTED_ROUTES':
       return { ...state, selectedRouteIds: action.payload }
     case 'TOGGLE_SELECTED_ROUTE': {
-      // 최대 2개까지 선택(비교용). 이미 선택된 걸 누르면 해제, 3번째를 고르면 가장 먼저 고른 걸 밀어냄.
+      // 최대 10개까지 선택 가능(지도에서 동시에 보기용). 상세 비교 패널은 정확히
+      // 2개일 때만 의미가 있음(RouteComparePanel에서 별도 처리).
+      // 이미 선택된 걸 누르면 해제, 11번째를 고르면 가장 먼저 고른 걸 밀어냄.
+      const MAX_SELECTED = 10
       const current = state.selectedRouteIds
       const id = action.payload
       let next: number[]
       if (current.includes(id)) next = current.filter(x => x !== id)
-      else if (current.length >= 2) next = [current[1], id]
+      else if (current.length >= MAX_SELECTED) next = [...current.slice(1), id]
       else next = [...current, id]
       return { ...state, selectedRouteIds: next }
     }

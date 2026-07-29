@@ -48,6 +48,7 @@ export interface RouteMeta {
   distance: number
   disabled: boolean
   aircraft: string
+  comments: string
 }
 
 export interface GeoJSONFeatureCollection {

@@ -15,7 +15,7 @@ const BASIC_LAYER_CONFIG: LayerConfigItem[] = [
 // 항로 · 운영 데이터 — 조회/검색 결과나 실시간 상황에 따라 달라지는 레이어
 const OPS_LAYER_CONFIG: LayerConfigItem[] = [
   { key: 'routes',        label: 'Navblue 항로',    color: 'bg-blue-500' },
-  { key: 'activeAirway',  label: '검색 Airway 강조', color: 'bg-yellow-400' },
+  { key: 'activeAirway',  label: '검색 Airway 강조', color: 'bg-[#C08497]' },
   { key: 'matchedRoutes', label: '검색 결과 항로',  color: 'bg-emerald-500' },
   { key: 'typhoon',       label: '태풍 구역',       color: 'bg-orange-500' },
 ]

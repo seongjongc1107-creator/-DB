@@ -15,17 +15,20 @@ def _route_meta(r):
         "distance": r.distance,
         "disabled": r.disabled,
         "aircraft": r.aircraft,
+        "comments": r.comments,
     }
 
 
 def _waypoints_from_fixes(passed_fixes):
-    """이 항로가 실제로 지나는 named waypoint 목록 (출발/도착 공항 제외)."""
-    wps = []
-    for fix in sorted(passed_fixes):
-        wp = store.waypoints.get(fix)
-        if wp:
-            wps.append({"id": wp.id, "lat": wp.lat, "lon": wp.lon})
-    return wps
+    """이 항로가 실제로 지나는 named waypoint 목록 (출발/도착 공항 제외).
+
+    passed_fixes는 {fix명: 이 항로에서 실제로 쓰인 [lon, lat]} — 동명이인 fix가
+    전 세계에 여러 개 있어도 store.waypoints 사전 재조회 없이 항상 정확한 위치를 씀.
+    """
+    return [
+        {"id": fix, "lon": coord[0], "lat": coord[1]}
+        for fix, coord in sorted(passed_fixes.items())
+    ]
 
 
 def _route_feature(r):
@@ -97,7 +100,7 @@ def parse_route_string(route: str = Query(..., description="공백으로 구분�
     coords, passed_fixes, airway_gaps = store.resolve_route_tokens(tokens)
     if len(coords) < 2:
         return {"type": "FeatureCollection", "features": [], "unresolved": tokens, "airway_gaps": []}
-    resolved_names = passed_fixes | {tokens[0], tokens[-1]}
+    resolved_names = set(passed_fixes) | {tokens[0], tokens[-1]}
     unresolved = [t for t in tokens if t not in resolved_names and t not in store.airway_names
                   and t != "DCT" and store._lookup_procedure(t) is None]
     return {

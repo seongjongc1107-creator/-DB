@@ -6,9 +6,36 @@ import { useApp } from '../AppContext'
 type ShapeType = 'polygon' | 'circle' | null
 type InputMethod = 'draw' | 'text'
 
+// "192000N" → 19°20'00"N (DDMMSS, 초 생략 가능: DDMM)
+function parseDmsLat(token: string): number | null {
+  const m = token.match(/^(\d{2})(\d{2})(\d{2})?([NS])$/)
+  if (!m) return null
+  const [, deg, min, sec, dir] = m
+  const val = Number(deg) + Number(min) / 60 + Number(sec ?? 0) / 3600
+  return dir === 'S' ? -val : val
+}
+
+// "1232600E" → 123°26'00"E (DDDMMSS, 초 생략 가능: DDDMM)
+function parseDmsLon(token: string): number | null {
+  const m = token.match(/^(\d{3})(\d{2})(\d{2})?([EW])$/)
+  if (!m) return null
+  const [, deg, min, sec, dir] = m
+  const val = Number(deg) + Number(min) / 60 + Number(sec ?? 0) / 3600
+  return dir === 'W' ? -val : val
+}
+
 function parseLatLon(raw: string): [number, number] | null {
-  const parts = raw.trim().split(/[\s,/]+/).filter(Boolean)
+  // 항공용 좌표 목록은 흔히 줄 끝에 "-"로 다음 줄과 이어붙임 — 구분자로만 쓰이니 제거
+  const cleaned = raw.trim().replace(/-+$/, '').trim()
+  const parts = cleaned.split(/[\s,/]+/).filter(Boolean)
   if (parts.length < 2) return null
+
+  // DMS 압축 표기: "192000N 1232600E"
+  const dmsLat = parseDmsLat(parts[0].toUpperCase())
+  const dmsLon = parseDmsLon(parts[1].toUpperCase())
+  if (dmsLat !== null && dmsLon !== null) return [dmsLon, dmsLat]
+
+  // 십진수 좌표: "37.5167, 126.9000"
   const lat = parseFloat(parts[0])
   const lon = parseFloat(parts[1])
   if (isNaN(lat) || isNaN(lon)) return null
@@ -219,10 +246,12 @@ export default function SpatialSearchPanel() {
           {/* ── Polygon / Text ── */}
           {shapeType === 'polygon' && method === 'text' && (
             <div className="space-y-2">
-              <p className="text-[11px] text-gray-500">한 줄에 하나 (위도, 경도)</p>
+              <p className="text-[11px] text-gray-500">
+                한 줄에 하나 — 십진수(위도, 경도) 또는 항공용 DMS(예: 192000N 1232600E) 둘 다 가능
+              </p>
               <textarea
                 rows={5}
-                placeholder={"37.5167, 126.9000\n35.1000, 129.0333\n33.5000, 126.4667"}
+                placeholder={"37.5167, 126.9000\n35.1000, 129.0333\n33.5000, 126.4667\n\n또는\n\n192000N 1232600E\n191500N 1242600E"}
                 value={polyText}
                 onChange={e => { setPolyText(e.target.value); setPolyError('') }}
                 className="w-full bg-gray-800 border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none font-mono resize-none placeholder-gray-600 focus:border-purple-500"

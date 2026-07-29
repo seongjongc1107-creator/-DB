@@ -3,6 +3,7 @@ import { PlaneTakeoff, PlaneLanding, RotateCcw, Download, Shuffle, CheckCircle2,
 import * as turf from '@turf/turf'
 import { api } from '../api/client'
 import { useApp } from '../AppContext'
+import { SELECT_COLORS } from '../lib/selectionColors'
 import type { GeoJSONFeature, RouteMeta } from '../types'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -188,7 +189,7 @@ export default function RoutePanel() {
   }, [state.allRoutes, affectedIdSet])
   const hasSpatialFilter = !!state.spatialFilter
 
-  // 최대 2개까지 선택(비교용). 3번째를 고르면 가장 먼저 고른 걸 밀어냄.
+  // 최대 10개까지 선택 가능(지도에서 동시에 보기용). 11번째를 고르면 가장 먼저 고른 걸 밀어냄.
   function toggleRouteSelect(id: number) {
     dispatch({ type: 'TOGGLE_SELECTED_ROUTE', payload: id })
   }
@@ -301,15 +302,17 @@ export default function RoutePanel() {
             {state.selectedRouteIds.length > 0 && (
               <div className="text-[10px] text-gray-500 mb-1">
                 {state.selectedRouteIds.length === 1
-                  ? '비교할 항로를 하나 더 선택하세요'
-                  : '2개 항로 비교 중 — 다른 항로를 고르면 먼저 선택한 항로가 빠집니다'}
+                  ? '비교하려면 항로를 하나 더 선택하세요 (최대 10개까지 동시 선택 가능)'
+                  : state.selectedRouteIds.length === 2
+                    ? '2개 선택됨 — 상세 비교 패널을 펼쳐볼 수 있어요'
+                    : `${state.selectedRouteIds.length}개 선택됨 — 11번째를 고르면 먼저 선택한 항로가 빠집니다`}
               </div>
             )}
             {routes.map(r => {
               const selIdx = state.selectedRouteIds.indexOf(r.id)
               const isSelected = selIdx !== -1
               const isAffected = affectedIdSet.has(r.id)
-              const color = selIdx === 0 ? '#F97316' : selIdx === 1 ? '#22D3EE' : undefined
+              const color = selIdx !== -1 ? SELECT_COLORS[selIdx % SELECT_COLORS.length] : undefined
               return (
                 <button
                   key={r.id}

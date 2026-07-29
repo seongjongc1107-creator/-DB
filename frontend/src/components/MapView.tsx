@@ -5,6 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import * as turf from '@turf/turf'
 import { useApp } from '../AppContext'
 import { classifyLevel, getThresholds, highlightSegments } from '../lib/weatherClassify'
+import { SELECT_COLORS } from '../lib/selectionColors'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 
@@ -306,6 +307,26 @@ export default function MapView() {
 
   const airwayData = state.airwayGeoJSON ?? EMPTY_FC
 
+  // ── 검색한 항공로 자체가 지나는 waypoint (좌표·이름이 같은 순서로 옴) ──
+  const airwayWaypointsData = useMemo(() => {
+    const seen = new Set<string>()
+    const features = airwayData.features.flatMap(f => {
+      const fixes = (f.properties?.fixes as string[] | undefined) ?? []
+      const coords = f.geometry.coordinates as number[][]
+      return fixes.flatMap((id, i) => {
+        const c = coords[i]
+        if (!c || seen.has(id)) return []
+        seen.add(id)
+        return [{
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: c },
+          properties: { id },
+        }]
+      })
+    })
+    return { type: 'FeatureCollection' as const, features }
+  }, [airwayData])
+
 
   // ── FlyTo effect ─────────────────────────────────────────────────
   useEffect(() => {
@@ -333,10 +354,11 @@ export default function MapView() {
 
   // ── Highlight markers (DOM, pulsing) ─────────────────────────────
   const HIGHLIGHT_COLORS = {
-    airport:  { ping: 'bg-orange-400', dot: 'bg-orange-500', text: 'text-orange-300' },
-    waypoint: { ping: 'bg-cyan-400',   dot: 'bg-cyan-400',   text: 'text-cyan-300'   },
-    airway:   { ping: 'bg-purple-400', dot: 'bg-purple-500', text: 'text-purple-300' },
-    route:    { ping: 'bg-blue-400',   dot: 'bg-blue-500',   text: 'text-blue-300'   },
+    airport:  { ping: 'bg-orange-400',  dot: 'bg-orange-500',  text: 'text-orange-300' },
+    // waypoint/airway 검색 = "검색한 대상 자체" 강조, airway-line과 같은 무채색 핑크로 통일
+    waypoint: { ping: 'bg-[#C08497]',   dot: 'bg-[#C08497]',   text: 'text-[#D8A8B5]' },
+    airway:   { ping: 'bg-[#C08497]',   dot: 'bg-[#C08497]',   text: 'text-[#D8A8B5]' },
+    route:    { ping: 'bg-blue-400',    dot: 'bg-blue-500',    text: 'text-blue-300'  },
   }
 
   // ── Base data ────────────────────────────────────────────────────
@@ -562,15 +584,15 @@ export default function MapView() {
 
   // ── 직접 입력한 항로가 지나는 waypoint ──
   const adhocRouteWaypointsData = useMemo(() => {
-    const wps = (adhocRouteData.features[0]?.properties?.waypoints as { id: string; lat: number; lon: number }[] | undefined) ?? []
-    return {
-      type: 'FeatureCollection' as const,
-      features: wps.map(w => ({
+    const features = adhocRouteData.features.flatMap(f => {
+      const wps = (f.properties?.waypoints as { id: string; lat: number; lon: number }[] | undefined) ?? []
+      return wps.map(w => ({
         type: 'Feature' as const,
         geometry: { type: 'Point' as const, coordinates: [w.lon, w.lat] },
         properties: { id: w.id },
-      })),
-    }
+      }))
+    })
+    return { type: 'FeatureCollection' as const, features }
   }, [adhocRouteData])
 
   // ── 항로 목록(우클릭 메뉴/사이드바) 호버 강조 ──
@@ -814,16 +836,24 @@ export default function MapView() {
           />
         </Source>
 
-        {/* ── 선택된 항로 강조 (색으로만 구분, 얇게) ───────────────── */}
+        {/* ── 선택된 항로 강조 — 흰색 케이싱으로 배경 파란 항로들과 분리 ── */}
         <Source id="selected-route" type="geojson" data={selectedRouteHighlightData}>
+          <Layer
+            id="selected-route-casing"
+            type="line"
+            paint={{ 'line-color': '#ffffff', 'line-width': 5.5, 'line-opacity': 0.9 }}
+          />
           <Layer
             id="selected-route-line"
             type="line"
             paint={{
-              'line-color': selectedIds.length === 2
-                ? ['match', ['get', 'id'], selectedIds[0], '#F97316', selectedIds[1], '#22D3EE', '#F97316']
-                : '#F97316',
-              'line-width': 2.2,
+              'line-color': selectedIds.length === 0
+                ? SELECT_COLORS[0]
+                : ['match', ['get', 'id'],
+                    ...selectedIds.flatMap((id, i) => [id, SELECT_COLORS[i % SELECT_COLORS.length]]),
+                    SELECT_COLORS[0],
+                  ] as any,
+              'line-width': 3,
               'line-opacity': 1,
             }}
           />
@@ -856,7 +886,7 @@ export default function MapView() {
           />
         </Source>
 
-        {/* ── Airway 자체 경로 — 흰색 케이싱 + 노란 실선, 최상단 ── */}
+        {/* ── Airway 자체 경로 — 흰색 케이싱 + 무채색 핑크 실선, 최상단 ── */}
         <Source id="airway" type="geojson" data={airwayData}>
           <Layer
             id="airway-line-casing"
@@ -871,10 +901,39 @@ export default function MapView() {
             id="airway-line"
             type="line"
             paint={{
-              'line-color': '#FBBF24',
+              'line-color': '#C08497',
               'line-width': 4,
               'line-opacity': state.layers.activeAirway ? 1 : 0,
             }}
+          />
+        </Source>
+
+        {/* ── 검색한 항공로가 지나는 waypoint ── */}
+        <Source id="airway-waypoints" type="geojson" data={airwayWaypointsData}>
+          <Layer
+            id="airway-waypoints-circle"
+            type="circle"
+            layout={{ visibility: state.layers.activeAirway ? 'visible' : 'none' }}
+            paint={{
+              'circle-radius': 3.5,
+              'circle-color': '#fff',
+              'circle-stroke-color': '#C08497',
+              'circle-stroke-width': 1.5,
+            }}
+          />
+          <Layer
+            id="airway-waypoints-label"
+            type="symbol"
+            layout={{
+              visibility: state.layers.activeAirway ? 'visible' : 'none',
+              'text-field': ['get', 'id'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 10,
+              'text-offset': [0, 1],
+              'text-anchor': 'top',
+              'text-allow-overlap': false,
+            }}
+            paint={{ 'text-color': '#D8A8B5', 'text-halo-color': '#111827', 'text-halo-width': 1.2 }}
           />
         </Source>
 
