@@ -1,51 +1,13 @@
-import re
 from fastapi import APIRouter, Query
 from ..data_loader import store
 
 router = APIRouter()
-
-_TOKEN_SPLIT_RE = re.compile(r'[\s\-#/]+')
 
 
 @router.get("")
 def search(q: str = Query(..., min_length=1)):
     q_up = q.upper().strip()
     results = []
-
-    # Route number search: "RKSI VVCR 27", "RKSI-VVCR#27", "RKSI 27", "#27" 등.
-    # 토큰 단위로 쪼개서 판단 — "REBIT2H"처럼 숫자가 섞인 한 단어는 항로 번호로
-    # 오인하지 않도록 독립된 순수 숫자 토큰만 번호로 인정.
-    tokens = [t for t in _TOKEN_SPLIT_RE.split(q_up) if t]
-    icao_tokens = [t for t in tokens if len(t) == 4 and t.isalpha() and t in store.airports]
-    number_tokens = [int(t) for t in tokens if t.isdigit()]
-    if number_tokens:
-        number = number_tokens[0]
-        candidates = [r for r in store.routes if r.number == number]
-        if len(icao_tokens) >= 2:
-            origin, dest = icao_tokens[0], icao_tokens[1]
-            candidates = [r for r in candidates if r.origin == origin and r.destination == dest]
-        elif len(icao_tokens) == 1:
-            candidates = [r for r in candidates if icao_tokens[0] in (r.origin, r.destination)]
-        limit = 20 if icao_tokens else 8
-        for r in candidates[:limit]:
-            results.append({
-                "type": "route",
-                "id": str(r.id),
-                "name": f"{r.origin} → {r.destination} #{r.number}",
-                "lat": None,
-                "lon": None,
-                "description": f"{r.distance} NM · {r.route_str[:70]}",
-                "route": {
-                    "id": r.id,
-                    "origin": r.origin,
-                    "destination": r.destination,
-                    "number": r.number,
-                    "route": r.route_str,
-                    "distance": r.distance,
-                    "disabled": r.disabled,
-                    "aircraft": r.aircraft,
-                },
-            })
 
     # Airports
     for ap_id, ap in store.airports.items():
@@ -75,20 +37,30 @@ def search(q: str = Query(..., min_length=1)):
             "description": f"Airway · {route_count} routes using it",
         })
 
-    # Waypoints (prefix match, cap at 15)
-    wp_hits = 0
-    for wp_id, wp in store.waypoints.items():
-        if wp_hits >= 15:
-            break
-        if wp_id.upper().startswith(q_up):
-            results.append({
-                "type": "waypoint",
-                "id": wp_id,
-                "name": wp_id,
-                "lat": wp.lat,
-                "lon": wp.lon,
-                "description": "Waypoint",
-            })
-            wp_hits += 1
+    # Waypoints/Navaids (prefix match, cap at 15) — fix_lookup은 waypoint(5글자
+    # RNAV 지점)뿐 아니라 NDB/VOR 같은 3글자 navaid, airway에 내장된 중간 fix,
+    # 절차 종점까지 다 포함하는 전체 인덱스라 여기서 찾아야 항로 리졸버가 실제로
+    # 쓰는 지점과 검색 결과가 일치함 (store.waypoints만 보면 NDB/navaid가 통째로 빠짐).
+    # airway 이름과 실제 navaid/fix 이름이 우연히 같을 수 있음(예: "APU"는 항공로
+    # 이름이면서 동시에 그 항공로가 지나는 VOR 이름이기도 함) — 서로 다른 실체라
+    # airway_names는 걸러내지 않음. 공항은 위에서 이미 별도로 다뤘으니 제외.
+    wp_matches = [
+        fix_id for fix_id in store.fix_lookup
+        if fix_id.upper().startswith(q_up) and fix_id not in store.airports
+    ]
+    # 정확히 일치 > 짧은 이름 우선 — 안 그러면 "APU" 자체보다 "APUGO" 같은
+    # 접두어 매칭이 먼저 채워져서 정작 찾던 짧은 navaid가 15개 제한에 밀려남.
+    wp_matches.sort(key=lambda x: (x != q_up, len(x), x))
+    for fix_id in wp_matches[:15]:
+        lon, lat = store.fix_lookup[fix_id][0]
+        kind = "Waypoint" if fix_id in store.waypoints else "NDB" if fix_id in store.ndbs else "Navaid"
+        results.append({
+            "type": "waypoint",
+            "id": fix_id,
+            "name": fix_id,
+            "lat": lat,
+            "lon": lon,
+            "description": kind,
+        })
 
     return results[:50]

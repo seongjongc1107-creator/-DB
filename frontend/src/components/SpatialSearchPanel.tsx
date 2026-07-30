@@ -43,6 +43,65 @@ function parseLatLon(raw: string): [number, number] | null {
   return [lon, lat]
 }
 
+// ── 자유 형식 DMS 좌표열 추출 ──────────────────────────────────────────────
+// 국가/출처마다 위경도 좌표를 표기하는 방식이 다 달라서(예: "213600N 1202500E"처럼
+// 숫자+문자 순서인 곳도 있고, "N360100E1211600"처럼 문자+숫자 순서로 공백 하나 없이
+// 붙여서 "-"로만 좌표쌍을 이어놓는 곳도 있음) 구분자를 일일이 알아내서 자르기보다,
+// "좌표처럼 생긴 조각"만 순서대로 전부 찾아내서 위도·경도가 번갈아 나온다고 보고
+// 짝짓는 방식이 훨씬 더 튼튼함 — 사이에 뭐가 껴있든(-, TO, TERRITORY, 줄바꿈, 공백)
+// 상관없이 동작함.
+// 위도: 2자리(도)+2자리(분)+2자리(초, 생략가능) = 4 또는 6자리 숫자 + N/S
+// 경도: 3자리(도)+2자리(분)+2자리(초, 생략가능) = 5 또는 7자리 숫자 + E/W
+// 문자가 숫자 앞이든 뒤든 둘 다 인식.
+const DMS_TOKEN_RE =
+  /(?:[NS](?:\d{6}|\d{4}))|(?:[EW](?:\d{7}|\d{5}))|(?:(?:\d{6}|\d{4})[NS])|(?:(?:\d{7}|\d{5})[EW])/g
+
+function dmsTokenToValue(token: string): { axis: 'lat' | 'lon'; value: number } | null {
+  let m = token.match(/^([NS])(\d{2})(\d{2})(\d{2})?$/)
+  if (m) {
+    const [, dir, deg, min, sec] = m
+    const val = Number(deg) + Number(min) / 60 + Number(sec ?? 0) / 3600
+    return { axis: 'lat', value: dir === 'S' ? -val : val }
+  }
+  m = token.match(/^([EW])(\d{3})(\d{2})(\d{2})?$/)
+  if (m) {
+    const [, dir, deg, min, sec] = m
+    const val = Number(deg) + Number(min) / 60 + Number(sec ?? 0) / 3600
+    return { axis: 'lon', value: dir === 'W' ? -val : val }
+  }
+  m = token.match(/^(\d{2})(\d{2})(\d{2})?([NS])$/)
+  if (m) {
+    const [, deg, min, sec, dir] = m
+    const val = Number(deg) + Number(min) / 60 + Number(sec ?? 0) / 3600
+    return { axis: 'lat', value: dir === 'S' ? -val : val }
+  }
+  m = token.match(/^(\d{3})(\d{2})(\d{2})?([EW])$/)
+  if (m) {
+    const [, deg, min, sec, dir] = m
+    const val = Number(deg) + Number(min) / 60 + Number(sec ?? 0) / 3600
+    return { axis: 'lon', value: dir === 'W' ? -val : val }
+  }
+  return null
+}
+
+// 전체 텍스트에서 좌표쌍을 몽땅 뽑아냄 — 못 찾으면 빈 배열(이 경우 호출부에서
+// 십진수 등 기존 줄 단위 파서로 대체 처리)
+function extractDmsPairs(raw: string): [number, number][] {
+  // 소수점은 DMS 자리수 계산을 틀어지게 하니 미리 제거(3단계: 소수점 제거)
+  const stripped = raw.replace(/\./g, '')
+  const tokens = stripped.toUpperCase().match(DMS_TOKEN_RE) ?? []
+  const values = tokens.map(dmsTokenToValue).filter((v): v is NonNullable<typeof v> => v !== null)
+
+  const pairs: [number, number][] = []
+  for (let i = 0; i + 1 < values.length; i += 2) {
+    const a = values[i], b = values[i + 1]
+    if (a.axis === 'lat' && b.axis === 'lon') pairs.push([b.value, a.value])
+    else if (a.axis === 'lon' && b.axis === 'lat') pairs.push([a.value, b.value])
+    else return []  // 위/경도가 번갈아 나오지 않으면 이 방식으로 못 읽는 형식이니 포기
+  }
+  return pairs
+}
+
 export default function SpatialSearchPanel() {
   const { state, dispatch } = useApp()
 
@@ -84,12 +143,19 @@ export default function SpatialSearchPanel() {
 
   // ── Polygon from text ───────────────────────────────────────────
   function applyPolyText() {
-    const lines = polyText.trim().split('\n').filter(l => l.trim())
-    const pts: [number, number][] = []
-    for (const line of lines) {
-      const pt = parseLatLon(line)
-      if (!pt) { setPolyError(`파싱 오류: "${line}"`); return }
-      pts.push(pt)
+    // 국가/출처마다 좌표 표기 방식이 다 달라도(공백 없이 붙여쓰거나, "-"/"TO"/
+    // "TERRITORY" 등 뭘로 이어붙였든) 한 번에 인식하는 방식을 먼저 시도 —
+    // 안 먹히면(위경도가 안 맞게 나오면 등) 기존 줄 단위 파서로 대체
+    let pts = extractDmsPairs(polyText)
+    if (pts.length === 0) {
+      const lines = polyText.trim().split('\n').filter(l => l.trim())
+      const parsed: [number, number][] = []
+      for (const line of lines) {
+        const pt = parseLatLon(line)
+        if (!pt) { setPolyError(`파싱 오류: "${line}"`); return }
+        parsed.push(pt)
+      }
+      pts = parsed
     }
     if (pts.length < 3) { setPolyError('꼭짓점이 3개 이상이어야 합니다.'); return }
     setPolyError('')
@@ -247,7 +313,8 @@ export default function SpatialSearchPanel() {
           {shapeType === 'polygon' && method === 'text' && (
             <div className="space-y-2">
               <p className="text-[11px] text-gray-500">
-                한 줄에 하나 — 십진수(위도, 경도) 또는 항공용 DMS(예: 192000N 1232600E) 둘 다 가능
+                십진수(위도, 경도) 또는 항공용 DMS 아무 형식이나 붙여넣기 가능 — 공백 없이
+                붙어있거나(N360100E1211600) "-"·"TO"로 이어붙인 형식도 자동 인식
               </p>
               <textarea
                 rows={5}

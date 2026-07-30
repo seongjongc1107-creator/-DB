@@ -232,7 +232,9 @@ export default function MapView() {
     }
     const id = f.properties?.id as number | undefined
     if (id !== undefined) {
-      dispatch({ type: 'TOGGLE_SELECTED_ROUTE', payload: id })
+      const multi = e.originalEvent?.ctrlKey || e.originalEvent?.metaKey
+      if (multi) dispatch({ type: 'TOGGLE_SELECTED_ROUTE', payload: id })
+      else dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
       dispatch({ type: 'SET_SELECTED_AIRPORT', payload: null })
     }
   }, [state.spatialMode, state.spatialPoints.length, state.weatherData, dispatch])
@@ -685,9 +687,9 @@ export default function MapView() {
               'symbol-placement': 'line-center',
               'text-field': ['get', 'airway'],
               'text-font': ['Noto Sans Regular'],
-              'text-size': 9,
+              'text-size': 10,
             }}
-            paint={{ 'text-color': '#A78BFA', 'text-opacity': 0.6, 'text-halo-color': '#0F172A', 'text-halo-width': 1 }}
+            paint={{ 'text-color': '#A78BFA', 'text-opacity': 0.6, 'text-halo-color': '#0F172A', 'text-halo-width': 0.6 }}
           />
         </Source>
 
@@ -766,7 +768,7 @@ export default function MapView() {
               visibility: state.layers.airports ? 'visible' : 'none',
               'text-field': ['get', 'id'],
               'text-font': ['Noto Sans Regular'],
-              'text-size': 10,
+              'text-size': 11,
               'text-offset': [0, 1.2],
               'text-anchor': 'top',
             }}
@@ -779,7 +781,7 @@ export default function MapView() {
                 '#6B7280',
               ],
               'text-halo-color': '#fff',
-              'text-halo-width': 1.5,
+              'text-halo-width': 0.8,
             }}
           />
         </Source>
@@ -814,11 +816,11 @@ export default function MapView() {
               visibility: state.layers.waypoints ? 'visible' : 'none',
               'text-field': ['get', 'id'],
               'text-font': ['Noto Sans Regular'],
-              'text-size': 9,
+              'text-size': 10,
               'text-offset': [0, 1],
               'text-anchor': 'top',
             }}
-            paint={{ 'text-color': '#4B5563', 'text-halo-color': '#fff', 'text-halo-width': 1 }}
+            paint={{ 'text-color': '#4B5563', 'text-halo-color': '#fff', 'text-halo-width': 0.6 }}
           />
         </Source>
 
@@ -877,12 +879,12 @@ export default function MapView() {
             layout={{
               'text-field': ['get', 'id'],
               'text-font': ['Noto Sans Regular'],
-              'text-size': 10,
+              'text-size': 11,
               'text-offset': [0, 1],
               'text-anchor': 'top',
               'text-allow-overlap': false,
             }}
-            paint={{ 'text-color': '#FDBA74', 'text-halo-color': '#111827', 'text-halo-width': 1.2 }}
+            paint={{ 'text-color': '#FDBA74', 'text-halo-color': '#111827', 'text-halo-width': 0.8 }}
           />
         </Source>
 
@@ -928,12 +930,12 @@ export default function MapView() {
               visibility: state.layers.activeAirway ? 'visible' : 'none',
               'text-field': ['get', 'id'],
               'text-font': ['Noto Sans Regular'],
-              'text-size': 10,
+              'text-size': 11,
               'text-offset': [0, 1],
               'text-anchor': 'top',
               'text-allow-overlap': false,
             }}
-            paint={{ 'text-color': '#D8A8B5', 'text-halo-color': '#111827', 'text-halo-width': 1.2 }}
+            paint={{ 'text-color': '#D8A8B5', 'text-halo-color': '#111827', 'text-halo-width': 0.8 }}
           />
         </Source>
 
@@ -1170,12 +1172,12 @@ export default function MapView() {
             layout={{
               'text-field': ['get', 'id'],
               'text-font': ['Noto Sans Regular'],
-              'text-size': 10,
+              'text-size': 11,
               'text-offset': [0, 1],
               'text-anchor': 'top',
               'text-allow-overlap': false,
             }}
-            paint={{ 'text-color': '#d8b4fe', 'text-halo-color': '#111827', 'text-halo-width': 1.2 }}
+            paint={{ 'text-color': '#d8b4fe', 'text-halo-color': '#111827', 'text-halo-width': 0.8 }}
           />
         </Source>
       </Map>
@@ -1258,14 +1260,19 @@ export default function MapView() {
                   {contextMenu.expanded.route as string}
                 </div>
                 <button
-                  onClick={() => {
-                    dispatch({ type: 'SET_SELECTED_ROUTES', payload: [contextMenu.expanded!.id as number] })
+                  onClick={e => {
+                    const id = contextMenu.expanded!.id as number
+                    if (e.ctrlKey || e.metaKey) dispatch({ type: 'TOGGLE_SELECTED_ROUTE', payload: id })
+                    else dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
                     setContextMenu(null)
                   }}
                   className="mt-2 w-full text-center bg-blue-700 hover:bg-blue-600 text-white rounded px-2 py-1 transition-colors"
                 >
                   이 항로 지도에서 강조
                 </button>
+                <div className="text-[10px] text-gray-500 mt-1.5 text-center">
+                  Cmd(⌘)+클릭하면 기존 선택에 추가돼요
+                </div>
               </div>
             </>
           ) : (

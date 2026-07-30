@@ -7,7 +7,7 @@ import {
 import { Download, RefreshCw, TrendingUp, X } from 'lucide-react'
 import { api } from '../api/client'
 import type {
-  CollectStatus, MetarPoint, MonthlyStats, TafPeriod,
+  CollectStatus, MetarPoint, MonthlyStats, TafPeriod, TafSnapshot,
   WeatherHistoryMonthly, WeatherHistoryTrend, WeatherTrendData,
 } from '../types'
 
@@ -37,14 +37,47 @@ function buildTafFn(periods: TafPeriod[]): (timeMs: number) => TafState {
         ? (p.to ? new Date(p.to).getTime() : Infinity)
         : (p.from ? new Date(p.from).getTime() : Infinity)
       if (timeMs >= effMs) {
-        if (p.wdir !== null) s.wdir = p.wdir
-        if (p.wspd !== null) s.wspd = p.wspd
-        if (p.wgst !== null) s.wgst = p.wgst
-        if (p.vis_m !== null) s.vis_m = p.vis_m
-        if (p.ceiling_ft !== null) s.ceiling_ft = p.ceiling_ft
+        if (p.type === 'FM') {
+          // FM은 이전 상태를 통째로 갈아치우는 새 예보 구간 — 예를 들어 이전엔
+          // BKN015로 운고가 있었다가 FM 구간에서 구름 언급이 없으면(SCT/FEW/SKC만
+          // 있거나 아예 안 적힘) 실제로는 "운고 없음"이 된 건데, 이걸 예전 값을
+          // 계속 들고 있으면 하늘이 갠 뒤에도 낡은 운고가 그대로 표출되는 버그가 됨
+          s.wdir = p.wdir
+          s.wspd = p.wspd
+          s.wgst = p.wgst
+          s.vis_m = p.vis_m
+          s.ceiling_ft = p.ceiling_ft
+        } else {
+          // BECMG/PROB 등은 이전 상태 위에 언급된 항목만 부분적으로 갈아끼우는
+          // 전환 구간 — 언급 안 된 나머지는 직전 상태를 그대로 유지
+          if (p.wdir !== null) s.wdir = p.wdir
+          if (p.wspd !== null) s.wspd = p.wspd
+          if (p.wgst !== null) s.wgst = p.wgst
+          if (p.vis_m !== null) s.vis_m = p.vis_m
+          if (p.ceiling_ft !== null) s.ceiling_ft = p.ceiling_ft
+        }
       }
     }
     return s
+  }
+}
+
+// 과거 특정 시점의 "그때 유효했던 최신 TAF"를 골라 평가 — 현재 TAF 하나만으로
+// 과거 전체를 평가하면 발표 시각 이전 구간이 전부 BASE값 일직선이 되어버리는
+// 문제가 있어, TAF 발표 이력(taf_history)에서 해당 시점 직전에 발표된 걸 사용
+function buildTafHistoryFn(history: TafSnapshot[]): (timeMs: number) => TafState {
+  const evaluators = [...history]
+    .sort((a, b) => new Date(a.issue_time).getTime() - new Date(b.issue_time).getTime())
+    .map(h => ({ issueMs: new Date(h.issue_time).getTime(), fn: buildTafFn(h.periods) }))
+
+  return (timeMs: number): TafState => {
+    if (evaluators.length === 0) return { wdir: null, wspd: null, wgst: null, vis_m: null, ceiling_ft: null }
+    let chosen = evaluators[0]
+    for (const e of evaluators) {
+      if (e.issueMs <= timeMs) chosen = e
+      else break
+    }
+    return chosen.fn(timeMs)
   }
 }
 
@@ -52,20 +85,79 @@ function buildTafFn(periods: TafPeriod[]): (timeMs: number) => TafState {
 
 interface ChartPoint {
   time: string
+  t: number  // epoch ms — 실제 x축 값 (숫자축이라야 "지금" 기준선을 정확한 위치에 그릴 수 있음)
+  isForecast?: boolean  // 실측 없이 TAF 예보만 있는 미래 지점
   wspd: number | null; wgst: number | null; wdir: number | null
   vis_m: number | null; ceiling_ft: number | null
   temp_c: number | null; dewpoint_c: number | null; qnh_hpa: number | null
   taf_wspd: number | null; taf_wdir: number | null
   taf_vis_m: number | null; taf_ceiling_ft: number | null
+  tempo_wspd: number | null; tempo_wgst: number | null
+  tempo_vis_m: number | null; tempo_ceiling_ft: number | null
 }
 
-function buildChartData(points: MetarPoint[], tafPeriods: TafPeriod[]): ChartPoint[] {
+// TAF 유효기간의 끝(가장 늦은 to) — 이 시각까지는 미래라도 예보선을 그려서
+// "지금 이후 TAF가 어떻게 예보하는지"를 보여줌. BASE만 있고 변화군이 전혀 없으면
+// 만료 시각을 알 수 없으니 관례상 24h로 가정.
+function tafForecastEnd(periods: TafPeriod[]): Date | null {
+  if (periods.length === 0) return null
+  let maxTo: number | null = null
+  for (const p of periods) {
+    if (p.to) {
+      const t = new Date(p.to).getTime()
+      if (!isNaN(t) && (maxTo === null || t > maxTo)) maxTo = t
+    }
+  }
+  return maxTo !== null ? new Date(maxTo) : new Date(Date.now() + 24 * 3600_000)
+}
+
+interface TempoRange {
+  from: number; to: number
+  wspd: number | null; wgst: number | null; vis_m: number | null; ceiling_ft: number | null
+}
+
+// TEMPO는 "한 시간 미만씩, 절반 미만의 시간 동안 일시적으로" 벗어나는 구간이라
+// 대표 예보선(taf_wspd 등)에는 아예 반영 안 하고 있음(buildTafFn에서 제외) — 대신
+// 이 구간을 차트에 음영+실제 예보값 선으로 표시해서 "이 시간대엔 일시적으로 이
+// 정도까지 나빠질 수 있다"를 보여줌. 과거(taf_history)·현재(tafPeriods) TAF에
+// 나온 TEMPO를 다 모아서 중복 제거.
+function extractTempoRanges(tafPeriods: TafPeriod[], tafHistory: TafSnapshot[]): TempoRange[] {
+  const all: TafPeriod[] = [...tafPeriods, ...tafHistory.flatMap(h => h.periods)]
+  const seen = new Set<string>()
+  const ranges: TempoRange[] = []
+  for (const p of all) {
+    if (p.type !== 'TEMPO' || !p.from || !p.to) continue
+    const from = new Date(p.from).getTime()
+    const to = new Date(p.to).getTime()
+    if (isNaN(from) || isNaN(to) || to <= from) continue
+    const key = `${from}_${to}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    ranges.push({
+      from, to,
+      wspd: p.wspd,
+      wgst: p.wgst,  // 돌풍이 있어도 지속 풍속(wspd)을 따로 보여줘야지, 돌풍값으로 덮어쓰면 안 됨
+      vis_m: p.vis_m !== null ? Math.min(p.vis_m, 9999) : null,
+      ceiling_ft: p.ceiling_ft,
+    })
+  }
+  return ranges.sort((a, b) => a.from - b.from)
+}
+
+function buildChartData(
+  points: MetarPoint[], tafPeriods: TafPeriod[], tafHistory: TafSnapshot[],
+  futureEnd?: Date | null, tempoRanges?: TempoRange[],
+): ChartPoint[] {
   const getTaf = buildTafFn(tafPeriods)
-  return points.map(m => {
+  // 과거 구간은 그 시점에 실제 유효했던 TAF 이력으로 평가 — 이력이 없으면(장기
+  // 조회 등) 현재 TAF로라도 대체 평가
+  const getTafPast = tafHistory.length > 0 ? buildTafHistoryFn(tafHistory) : getTaf
+  const past: ChartPoint[] = points.map(m => {
     const timeMs = new Date(m.obs_time).getTime()
-    const taf = getTaf(timeMs)
+    const taf = getTafPast(timeMs)
     return {
       time: m.obs_time,
+      t: timeMs,
       wspd: m.wspd, wgst: m.wgst, wdir: m.wdir,
       vis_m: m.vis_m !== null ? Math.min(m.vis_m, 9999) : null,
       ceiling_ft: m.ceiling_ft,
@@ -73,8 +165,66 @@ function buildChartData(points: MetarPoint[], tafPeriods: TafPeriod[]): ChartPoi
       taf_wspd: taf.wspd, taf_wdir: taf.wdir,
       taf_vis_m: taf.vis_m !== null ? Math.min(taf.vis_m, 9999) : null,
       taf_ceiling_ft: taf.ceiling_ft,
+      tempo_wspd: null, tempo_wgst: null, tempo_vis_m: null, tempo_ceiling_ft: null,
     }
   })
+
+  let result = past
+
+  if (futureEnd) {
+    const lastMs = points.length > 0 ? new Date(points[points.length - 1].obs_time).getTime() : Date.now()
+    const stepMs = 3600_000  // 1시간 간격
+    // "지금"부터 정확히 1시간씩 띄우면 07:23, 08:23, 09:23…처럼 눈금이 어중간해짐 —
+    // METAR/TAF가 정시 기준으로 도는 것과 맞춰 다음 정시로 올림해서 시작
+    const startMs = Math.ceil(Math.max(lastMs, Date.now()) / stepMs) * stepMs
+    const endMs = futureEnd.getTime()
+    if (endMs > startMs) {
+      const future: ChartPoint[] = []
+      for (let t = startMs; t <= endMs; t += stepMs) {
+        const taf = getTaf(t)
+        future.push({
+          time: new Date(t).toISOString(),
+          t,
+          isForecast: true,
+          wspd: null, wgst: null, wdir: null, vis_m: null, ceiling_ft: null,
+          temp_c: null, dewpoint_c: null, qnh_hpa: null,
+          taf_wspd: taf.wspd, taf_wdir: taf.wdir,
+          taf_vis_m: taf.vis_m !== null ? Math.min(taf.vis_m, 9999) : null,
+          taf_ceiling_ft: taf.ceiling_ft,
+          tempo_wspd: null, tempo_wgst: null, tempo_vis_m: null, tempo_ceiling_ft: null,
+        })
+      }
+      result = [...past, ...future]
+    }
+  }
+
+  if (tempoRanges && tempoRanges.length > 0) {
+    // 구간 시작·끝 경계점을 끼워 넣어서 정확히 그 시각에 선이 시작/끝나게 함
+    const tempoPoints: ChartPoint[] = []
+    for (const r of tempoRanges) {
+      for (const t of [r.from, r.to]) {
+        tempoPoints.push({
+          time: new Date(t).toISOString(), t,
+          wspd: null, wgst: null, wdir: null, vis_m: null, ceiling_ft: null,
+          temp_c: null, dewpoint_c: null, qnh_hpa: null,
+          taf_wspd: null, taf_wdir: null, taf_vis_m: null, taf_ceiling_ft: null,
+          tempo_wspd: null, tempo_wgst: null, tempo_vis_m: null, tempo_ceiling_ft: null,
+        })
+      }
+    }
+    result = [...result, ...tempoPoints].sort((a, b) => a.t - b.t)
+
+    // 경계점만 채우면 그 사이에 낀 실측 관측점들이 tempo_*=null이라 선이 뚝뚝
+    // 끊겨서 점 두 개짜리로 보임(connectNulls 없이는 안 이어짐) — 구간 안의
+    // 모든 점을 다 채워야 하나로 이어진 수평선이 됨
+    result = result.map(p => {
+      const r = tempoRanges.find(r => p.t >= r.from && p.t <= r.to)
+      if (!r) return p
+      return { ...p, tempo_wspd: r.wspd, tempo_wgst: r.wgst, tempo_vis_m: r.vis_m, tempo_ceiling_ft: r.ceiling_ft }
+    })
+  }
+
+  return result
 }
 
 // ─── Shared chart config ────────────────────────────────────────────────────
@@ -87,47 +237,56 @@ const TOOLTIP_STYLE = {
   itemStyle: { color: '#cbd5e1' },
 }
 
+// Tooltip에는 항상 날짜+시각을 같이 보여줘서 "몇 일자 몇 시"인지 헷갈리지 않게 함
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function xFmt(val: any): string {
-  const d = new Date(val as string)
+  const d = new Date(val)
   const hh = String(d.getUTCHours()).padStart(2, '0')
   const mm = String(d.getUTCMinutes()).padStart(2, '0')
-  return d.getUTCHours() === 0 && d.getUTCMinutes() === 0
-    ? `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
-    : `${hh}:${mm}`
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${hh}:${mm}Z`
 }
 
 const MONTH_KO = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월']
 
 function xAxis(data: ChartPoint[]) {
-  if (data.length === 0) return <XAxis dataKey="time" tick={false} />
+  if (data.length === 0) return <XAxis dataKey="t" type="number" domain={['dataMin', 'dataMax']} tick={false} />
 
-  const spanMs = new Date(data[data.length - 1].time).getTime() - new Date(data[0].time).getTime()
+  const spanMs = data[data.length - 1].t - data[0].t
   const spanDays = spanMs / 86400_000
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let fmt: (v: any) => string
   let interval: number
 
   if (spanDays > 90) {
     // Show YYYY년 MM월 at each tick
     fmt = (v: any) => {
-      const d = new Date(v as string)
+      const d = new Date(v)
       return `${d.getUTCFullYear()}/${MONTH_KO[d.getUTCMonth()]}`
     }
     interval = Math.max(0, Math.floor(data.length / 14) - 1)
   } else if (spanDays > 3) {
     fmt = (v: any) => {
-      const d = new Date(v as string)
+      const d = new Date(v)
       return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`
     }
     interval = Math.max(0, Math.floor(data.length / 8) - 1)
   } else {
-    fmt = xFmt
-    interval = Math.max(0, Math.floor(data.length / 8) - 1)
+    // 자정에 걸리는 눈금이 우연히 없으면 날짜가 안 보일 수 있으니, 실시간(≤3일)
+    // 구간에서는 매 눈금마다 "M/D HH:MM"을 항상 같이 표시 — 자정 근처에서만
+    // 날짜를 보여주면 간격이 안 맞아 며칠짜리인지 못 알아보는 경우가 있었음
+    fmt = (v: any) => {
+      const d = new Date(v)
+      const hh = String(d.getUTCHours()).padStart(2, '0')
+      const mm = String(d.getUTCMinutes()).padStart(2, '0')
+      return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${hh}:${mm}`
+    }
+    interval = Math.max(0, Math.floor(data.length / 6) - 1)
   }
 
   return (
-    <XAxis dataKey="time" tickFormatter={fmt} interval={interval}
+    <XAxis dataKey="t" type="number" domain={['dataMin', 'dataMax']} scale="time"
+      tickFormatter={fmt} interval={interval}
       tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={false} />
   )
 }
@@ -139,30 +298,43 @@ function yAxis(unit?: string, width = 44) {
   )
 }
 
+// "지금" 기준선 — 이 선을 기준으로 왼쪽은 실측(METAR), 오른쪽은 TAF 예보만 있는 미래 구간
+function nowLine(nowMs?: number) {
+  if (nowMs === undefined) return null
+  return (
+    <ReferenceLine x={nowMs} stroke="#94a3b8" strokeDasharray="2 2" strokeWidth={1}
+      label={{ value: '지금', fill: '#94a3b8', fontSize: 8, position: 'insideTopLeft' }} />
+  )
+}
+
 // ─── Sub-components ────────────────────────────────────────────────────────
 
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div className="bg-gray-950 rounded-xl border border-gray-800/60 px-3 pt-2 pb-1">
-      <p className="text-[10px] font-semibold text-gray-500 mb-1 uppercase tracking-wide">{title}</p>
+      <p className="text-[10px] font-semibold text-gray-500 mb-1 uppercase tracking-wide">
+        {title}
+        {subtitle && <span className="ml-1.5 normal-case font-normal text-gray-600">{subtitle}</span>}
+      </p>
       {children}
     </div>
   )
 }
 
 // Wind speed + gust vs TAF
-function WindSpeedChart({ data }: { data: ChartPoint[] }) {
+function WindSpeedChart({ data, nowMs, tempoRanges }: { data: ChartPoint[]; nowMs?: number; tempoRanges?: TempoRange[] }) {
   const hasGust = data.some(d => d.wgst !== null)
   const hasTaf = data.some(d => d.taf_wspd !== null)
   return (
     <ChartCard title="풍속 (kt)">
       <ResponsiveContainer width="100%" height={130}>
-        <ComposedChart data={data} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
           {GRID}
           {xAxis(data)}
-          {yAxis('kt')}
+          {yAxis('kt', 62)}
           <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
             formatter={(v: any, name: any) => [`${v ?? '—'} kt`, name]} />
+          {nowLine(nowMs)}
           <Line type="linear" dataKey="wspd" name="실측 풍속"
             stroke="#60a5fa" strokeWidth={1.5} dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }} connectNulls />
           {hasGust && (
@@ -173,6 +345,16 @@ function WindSpeedChart({ data }: { data: ChartPoint[] }) {
           {hasTaf && (
             <Line type="stepAfter" dataKey="taf_wspd" name="TAF 예보"
               stroke="#f97316" strokeWidth={1.5} strokeDasharray="4 2" dot={false} connectNulls />
+          )}
+          {(tempoRanges?.length ?? 0) > 0 && (
+            <>
+              <Line type="linear" dataKey="tempo_wspd" name="TEMPO 예보(풍속)"
+                stroke="#fdba74" strokeWidth={2} strokeDasharray="1 2" dot={{ r: 2, fill: '#fdba74', strokeWidth: 0 }} />
+              {tempoRanges?.some(r => r.wgst !== null) && (
+                <Line type="linear" dataKey="tempo_wgst" name="TEMPO 예보(돌풍)"
+                  stroke="#ea580c" strokeWidth={1.5} strokeDasharray="1 1" dot={{ r: 2, fill: '#ea580c', strokeWidth: 0 }} />
+              )}
+            </>
           )}
         </ComposedChart>
       </ResponsiveContainer>
@@ -211,22 +393,38 @@ function WindRoseChart({ data }: { data: ChartPoint[] }) {
 
   const latest = [...data].reverse().find(d => d.wdir !== null)?.wdir ?? null
 
+  // 꽃잎 반지름 공식 — count===0이면 0, 아니면 minR~maxR 사이를 count/maxCount
+  // 비율로 선형 보간(너무 작은 값도 최소한 보이게 minR만큼 밑깔림). 배경 기준원도
+  // 반드시 이 식과 같은 비율로 그려야 "이 원 = 몇 %" 캡션이 실제로 맞음 — 예전엔
+  // 원은 maxR*f로, 꽃잎은 minR+(maxR-minR)*f로 서로 다른 식을 써서 안 맞았음
+  const ringR = (f: number) => minR + (maxR - minR) * f
+
   return (
-    <ChartCard title="풍향 분포">
+    <ChartCard title="풍향 분포" subtitle="꽃잎 길이 = 방향별 관측 횟수 (제일 잦은 방향을 100%로 놓고 비교)">
       {total === 0 ? (
         <p className="text-xs text-gray-600 text-center py-6">풍향 데이터가 없습니다.</p>
       ) : (
         <div className="flex items-center gap-4 py-1">
           <svg width={140} height={140} viewBox="0 0 140 140" className="shrink-0">
-            {/* 배경 기준 원 (25/50/75/100%) */}
+            {/* 배경 기준 원 — 꽃잎과 같은 척도로 25/50/75/100% 표시 */}
             {[0.25, 0.5, 0.75, 1].map(f => (
-              <circle key={f} cx={cx} cy={cy} r={maxR * f} fill="none" stroke="#1f2937" strokeWidth={1} />
+              <circle key={f} cx={cx} cy={cy} r={ringR(f)} fill="none" stroke="#1f2937" strokeWidth={1} />
             ))}
+            {/* 기준원 %값 라벨 — NE(45°) 방향에 겹치지 않게 표시 */}
+            {[0.25, 0.5, 0.75, 1].map(f => {
+              const [tx, ty] = polar(cx, cy, ringR(f), 45)
+              return (
+                <text key={`pct-${f}`} x={tx} y={ty} textAnchor="middle" dominantBaseline="middle"
+                  fontSize={6} fill="#4b5563">
+                  {Math.round(f * 100)}%
+                </text>
+              )
+            })}
             {/* 꽃잎 */}
             {counts.map((count, i) => {
               const startDeg = i * sectorWidth - sectorWidth / 2
               const endDeg = startDeg + sectorWidth
-              const r = count === 0 ? 0 : minR + (maxR - minR) * (count / maxCount)
+              const r = count === 0 ? 0 : ringR(count / maxCount)
               const isDominant = i === dominantIdx && count > 0
               return (
                 <path key={i} d={sectorPath(cx, cy, r, startDeg, endDeg)}
@@ -272,7 +470,7 @@ function WindRoseChart({ data }: { data: ChartPoint[] }) {
 }
 
 // Visibility vs TAF
-function VisChart({ data }: { data: ChartPoint[] }) {
+function VisChart({ data, nowMs, tempoRanges }: { data: ChartPoint[]; nowMs?: number; tempoRanges?: TempoRange[] }) {
   const hasTaf = data.some(d => d.taf_vis_m !== null)
   const visFmt = (v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}km` : `${v}m`
   return (
@@ -282,11 +480,12 @@ function VisChart({ data }: { data: ChartPoint[] }) {
           {GRID}
           {xAxis(data)}
           <YAxis tickFormatter={visFmt} domain={[0, 10000]}
-            tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={false} width={36} />
+            tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={false} width={62} />
           <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
             formatter={(v: any, name: any) => [v !== null ? visFmt(v) : '—', name]} />
           {/* CAT I reference line (RVR 기준) */}
           <ReferenceLine y={550} stroke="#f87171" strokeDasharray="2 4" strokeWidth={0.8} label={{ value: 'CAT I', fill: '#f87171', fontSize: 8, position: 'insideTopRight' }} />
+          {nowLine(nowMs)}
           {hasTaf && (
             <Area type="stepAfter" dataKey="taf_vis_m" name="TAF 예보"
               stroke="#f97316" strokeWidth={1} strokeDasharray="4 2"
@@ -294,6 +493,10 @@ function VisChart({ data }: { data: ChartPoint[] }) {
           )}
           <Line type="linear" dataKey="vis_m" name="실측 시정"
             stroke="#60a5fa" strokeWidth={1.5} dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }} connectNulls />
+          {(tempoRanges?.length ?? 0) > 0 && (
+            <Line type="linear" dataKey="tempo_vis_m" name="TEMPO 예보"
+              stroke="#fdba74" strokeWidth={2} strokeDasharray="1 2" dot={{ r: 2, fill: '#fdba74', strokeWidth: 0 }} />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -301,16 +504,21 @@ function VisChart({ data }: { data: ChartPoint[] }) {
 }
 
 // QNH — METAR only (TAF doesn't forecast QNH)
-function QnhChart({ data }: { data: ChartPoint[] }) {
+function QnhChart({ data, nowMs }: { data: ChartPoint[]; nowMs?: number }) {
+  // Y축 기본값(0부터 시작)으로 두면 990~1030대 QNH가 축 맨 위쪽에 다 뭉쳐서
+  // 1~2hPa 변화가 안 보임 — 실측 데이터 범위에 맞춰 확대해서 보여줌
   return (
     <ChartCard title="기압 QNH (hPa)">
       <ResponsiveContainer width="100%" height={110}>
-        <ComposedChart data={data} margin={{ top: 4, right: 8, left: -8, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
           {GRID}
           {xAxis(data)}
-          {yAxis('hPa', 50)}
+          <YAxis domain={['dataMin - 1', 'dataMax + 1']} allowDecimals={false}
+            tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={false}
+            width={62} unit="hPa" />
           <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
             formatter={(v: any) => [`${v ?? '—'} hPa`, 'QNH']} />
+          {nowLine(nowMs)}
           <Line type="linear" dataKey="qnh_hpa" name="실측 QNH"
             stroke="#60a5fa" strokeWidth={1.5} dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }} connectNulls />
         </ComposedChart>
@@ -320,19 +528,20 @@ function QnhChart({ data }: { data: ChartPoint[] }) {
 }
 
 // Ceiling vs TAF
-function CeilingChart({ data }: { data: ChartPoint[] }) {
+function CeilingChart({ data, nowMs, tempoRanges }: { data: ChartPoint[]; nowMs?: number; tempoRanges?: TempoRange[] }) {
   const hasTaf = data.some(d => d.taf_ceiling_ft !== null)
   const ceilFmt = (v: number) => `${v.toLocaleString()}ft`
   return (
-    <ChartCard title="운고 (ft)">
+    <ChartCard title="운고 (ft)" subtitle="BKN·OVC(5/8 이상 뒤덮음)만 반영 — FEW·SCT는 하늘이 트여 있다고 봐서 제외">
       <ResponsiveContainer width="100%" height={130}>
-        <ComposedChart data={data} margin={{ top: 4, right: 8, left: 4, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
           {GRID}
           {xAxis(data)}
-          <YAxis tickFormatter={ceilFmt} tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={false} width={52} />
+          <YAxis tickFormatter={ceilFmt} tick={{ fill: '#64748b', fontSize: 9 }} tickLine={false} axisLine={false} width={62} />
           <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
             formatter={(v: any, name: any) => [v !== null ? ceilFmt(v) : '—', name]} />
           <ReferenceLine y={200} stroke="#f87171" strokeDasharray="2 4" strokeWidth={0.8} label={{ value: 'CAT I', fill: '#f87171', fontSize: 8, position: 'insideTopRight' }} />
+          {nowLine(nowMs)}
           {hasTaf && (
             <Area type="stepAfter" dataKey="taf_ceiling_ft" name="TAF 예보"
               stroke="#f97316" strokeWidth={1} strokeDasharray="4 2"
@@ -340,6 +549,10 @@ function CeilingChart({ data }: { data: ChartPoint[] }) {
           )}
           <Line type="linear" dataKey="ceiling_ft" name="실측 운고"
             stroke="#60a5fa" strokeWidth={1.5} dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }} connectNulls />
+          {(tempoRanges?.length ?? 0) > 0 && (
+            <Line type="linear" dataKey="tempo_ceiling_ft" name="TEMPO 예보"
+              stroke="#fdba74" strokeWidth={2} strokeDasharray="1 2" dot={{ r: 2, fill: '#fdba74', strokeWidth: 0 }} />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </ChartCard>
@@ -347,16 +560,17 @@ function CeilingChart({ data }: { data: ChartPoint[] }) {
 }
 
 // Temperature & Dewpoint
-function TempChart({ data }: { data: ChartPoint[] }) {
+function TempChart({ data, nowMs }: { data: ChartPoint[]; nowMs?: number }) {
   return (
     <ChartCard title="기온 / 이슬점 (°C)">
       <ResponsiveContainer width="100%" height={130}>
-        <ComposedChart data={data} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+        <ComposedChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
           {GRID}
           {xAxis(data)}
-          {yAxis('°C')}
+          {yAxis('°C', 62)}
           <Tooltip {...TOOLTIP_STYLE} labelFormatter={xFmt}
             formatter={(v: any, name: any) => [`${v ?? '—'} °C`, name]} />
+          {nowLine(nowMs)}
           <Area type="linear" dataKey="temp_c" name="실측 기온"
             stroke="#60a5fa" strokeWidth={1.5} fill="#60a5fa" fillOpacity={0.08}
             dot={{ r: 2, fill: '#60a5fa', strokeWidth: 0 }} connectNulls />
@@ -578,6 +792,14 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
     if (mode === 'realtime') loadRealtime()
   }, [mode, hours, icao])
 
+  // 근무자가 창을 켜놓고 계속 볼 수 있으니, 자동으로 5분마다 새로 받아와서
+  // "지금" 이전 값이 옛날 TAF 스냅샷에 멈춰있는 일이 없게 함
+  useEffect(() => {
+    if (mode !== 'realtime') return
+    const id = setInterval(loadRealtime, 5 * 60_000)
+    return () => clearInterval(id)
+  }, [mode, hours, icao])
+
   async function loadRealtime() {
     setLoading(true); setError(null)
     try {
@@ -656,7 +878,20 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
 
   const metarPoints = mode === 'realtime' ? (trendData?.metar ?? []) : (histPoints ?? [])
   const tafPeriods = mode === 'realtime' ? (trendData?.taf_periods ?? []) : []
-  const chartData = useMemo(() => buildChartData(metarPoints, tafPeriods), [metarPoints, tafPeriods])
+  const tafHistory = mode === 'realtime' ? (trendData?.taf_history ?? []) : []
+  // 실시간 모드에서만 "지금 이후" TAF 예보를 미래 구간까지 이어서 그림 (장기 조회엔 TAF가 없음)
+  const futureEnd = useMemo(() => mode === 'realtime' ? tafForecastEnd(tafPeriods) : null, [mode, tafPeriods])
+  const tempoRanges = useMemo(
+    () => mode === 'realtime' ? extractTempoRanges(tafPeriods, tafHistory) : [],
+    [mode, tafPeriods, tafHistory],
+  )
+  const chartData = useMemo(
+    () => buildChartData(metarPoints, tafPeriods, tafHistory, futureEnd, tempoRanges),
+    [metarPoints, tafPeriods, tafHistory, futureEnd, tempoRanges],
+  )
+  // "지금" 기준선도 미래 예보 시작점과 같은 정시 경계에 맞춤 — 실제 관측이 끝나고
+  // TAF 전용 예보 구간이 시작되는 지점을 그대로 표시
+  const nowMs = mode === 'realtime' && futureEnd ? Math.ceil(Date.now() / 3600_000) * 3600_000 : undefined
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3">
@@ -678,15 +913,18 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
             ))}
           </div>
 
-          {/* Real-time hours selector */}
+          {/* Real-time hours selector — 과거로 몇 시간치 METAR를 조회할지 (TAF는 항상 전체 예보기간을 표시) */}
           {mode === 'realtime' && (
-            <div className="flex gap-0.5 ml-1">
-              {([12, 24, 48] as const).map(h => (
-                <button key={h} onClick={() => setHours(h)}
-                  className={`px-2 py-0.5 rounded text-xs font-mono transition-colors border ${hours === h ? 'bg-blue-900/50 text-blue-300 border-blue-700' : 'text-gray-500 border-transparent hover:text-gray-300'}`}>
-                  {h}h
-                </button>
-              ))}
+            <div className="flex items-center gap-1 ml-1" title="지금 기준으로 과거 몇 시간치 METAR를 볼지 선택 — TAF 예보는 이 설정과 무관하게 항상 전체 유효기간까지 표시됩니다">
+              <span className="text-[10px] text-gray-600">최근</span>
+              <div className="flex gap-0.5">
+                {([12, 24, 48] as const).map(h => (
+                  <button key={h} onClick={() => setHours(h)}
+                    className={`px-2 py-0.5 rounded text-xs font-mono transition-colors border ${hours === h ? 'bg-blue-900/50 text-blue-300 border-blue-700' : 'text-gray-500 border-transparent hover:text-gray-300'}`}>
+                    {h}h
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -754,11 +992,11 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
           {(mode === 'realtime' || histView === 'raw') && chartData.length > 0 && (
             <>
               <WindRoseChart data={chartData} />
-              <WindSpeedChart data={chartData} />
-              <VisChart data={chartData} />
-              <QnhChart data={chartData} />
-              <CeilingChart data={chartData} />
-              <TempChart data={chartData} />
+              <WindSpeedChart data={chartData} nowMs={nowMs} tempoRanges={tempoRanges} />
+              <VisChart data={chartData} nowMs={nowMs} tempoRanges={tempoRanges} />
+              <CeilingChart data={chartData} nowMs={nowMs} tempoRanges={tempoRanges} />
+              <TempChart data={chartData} nowMs={nowMs} />
+              <QnhChart data={chartData} nowMs={nowMs} />
             </>
           )}
 
@@ -783,6 +1021,12 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
           <div className="px-4 py-2 border-t border-gray-800 flex gap-4 text-[10px] text-gray-500 shrink-0">
             <span className="flex items-center gap-1"><span className="w-4 h-0.5 bg-blue-400 inline-block" /> 실측값</span>
             <span className="flex items-center gap-1"><span className="w-4 h-0.5 border-t border-dashed border-orange-400 inline-block" /> TAF 예보</span>
+            {nowMs !== undefined && (
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5 border-t border-dashed border-gray-500 inline-block" /> 지금 기준선 (이후는 TAF 예보만)</span>
+            )}
+            {tempoRanges.length > 0 && (
+              <span className="flex items-center gap-1"><span className="w-4 h-0.5 border-t border-dashed border-orange-300 inline-block" /> TEMPO 예보값</span>
+            )}
             <span className="ml-auto">UTC 기준</span>
           </div>
         )}

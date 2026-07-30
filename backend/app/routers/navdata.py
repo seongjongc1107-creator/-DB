@@ -115,6 +115,9 @@ def get_airway_routes(name: str):
                 "number": r.number,
                 "route": r.route_str,
                 "distance": r.distance,
+                "disabled": r.disabled,
+                "aircraft": r.aircraft,
+                "comments": r.comments,
             }
             for r in routes
         ],

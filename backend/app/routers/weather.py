@@ -28,6 +28,7 @@ from app.models import MetarArchive
 router = APIRouter()
 
 AVWX_URL = "https://aviationweather.gov/api/data/metar"
+AVWX_TAF_URL = "https://aviationweather.gov/api/data/taf"
 ASOS_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
 
 # task_id → progress dict (in-memory; cleared on restart)
@@ -173,9 +174,31 @@ def _wind_tok(t: str) -> Optional[dict]:
     }
 
 
+_SM_WHOLE_RE = re.compile(r"^[PM]?(\d+)SM$", re.I)
+_SM_FRAC_RE = re.compile(r"^[PM]?(\d+)/(\d+)SM$", re.I)
+_SM_MERGED_RE = re.compile(r"^(\d+)_(\d+)/(\d+)SM$", re.I)
+_STATUTE_MILE_M = 1609.344
+
+
+def _merge_sm_fractions(tokens: list[str]) -> list[str]:
+    """미국식 TAF는 '1 1/2SM'처럼 정수부와 분수부가 공백으로 분리되어 두 토큰으로
+    쪼개져 들어오는 경우가 있음 — 뒤 토큰이 분수+SM이면 하나로 합쳐서 정상 계산."""
+    out: list[str] = []
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if i + 1 < len(tokens) and re.match(r"^\d+$", t) and re.match(r"^\d+/\d+SM$", tokens[i + 1], re.I):
+            out.append(f"{t}_{tokens[i + 1]}")
+            i += 2
+            continue
+        out.append(t)
+        i += 1
+    return out
+
+
 def _cond_from_tokens(tokens: list[str]) -> dict:
     wind = vis_m = ceiling_ft = None
-    for t in tokens:
+    for t in _merge_sm_fractions(tokens):
         if wind is None:
             w = _wind_tok(t)
             if w:
@@ -187,9 +210,23 @@ def _cond_from_tokens(tokens: list[str]) -> dict:
         if vis_m is None and re.match(r"^\d{4}$", t) and 0 <= int(t) <= 9999:
             vis_m = int(t)
             continue
-        if vis_m is None and re.match(r"^\d+(?:\.\d+)?SM$", t, re.I):
-            vis_m = round(float(t[:-2]) * 1852)
-            continue
+        if vis_m is None:
+            # 미국식 SM(statute mile) 표기 — P6SM(6마일 초과), M1/4SM(1/4마일 미만),
+            # 3SM, 1/2SM, "1 1/2SM"(위에서 1_1/2SM으로 합쳐짐) 전부 처리
+            mm = _SM_MERGED_RE.match(t)
+            if mm:
+                miles = int(mm.group(1)) + int(mm.group(2)) / int(mm.group(3))
+                vis_m = round(miles * _STATUTE_MILE_M)
+                continue
+            mf = _SM_FRAC_RE.match(t)
+            if mf:
+                miles = int(mf.group(1)) / int(mf.group(2))
+                vis_m = round(miles * _STATUTE_MILE_M)
+                continue
+            mw = _SM_WHOLE_RE.match(t)
+            if mw:
+                vis_m = round(int(mw.group(1)) * _STATUTE_MILE_M)
+                continue
         mc = re.match(r"^(BKN|OVC)(\d{3})", t, re.I)
         if mc:
             ft = int(mc.group(2)) * 100
@@ -467,6 +504,65 @@ async def get_metar(icaos: str = Query(...)):
     return {"data": [_parse_metar(r) for r in raw_list]}
 
 
+async def _fetch_taf_history(icao: str, hours: int) -> list[dict]:
+    """과거 시점별로 '그때 실제 유효했던 최신 TAF'를 재구성.
+
+    aviationweather.gov의 /metar 엔드포인트는 taf=true를 줘도 매 관측치에 항상
+    현재(최신) TAF 텍스트 하나만 붙여주기 때문에, 그걸로 과거를 평가하면 BASE
+    구간(발표 시각 이전 전체)이 일직선으로 깔려버림. 대신 /taf 엔드포인트가 지원하는
+    date= 파라미터로 "그 시각 기준 가장 최근 TAF"를 골라올 수 있어, TAF 정규 발표
+    주기(6시간)에 맞춰 과거 구간을 샘플링해서 실제 발표 이력에 가깝게 재구성함.
+    """
+    now = datetime.now(timezone.utc)
+    sample_times: list[datetime] = []
+    t = now - timedelta(hours=hours)
+    while t <= now:
+        sample_times.append(t)
+        t += timedelta(hours=6)
+    if not sample_times or sample_times[-1] != now:
+        sample_times.append(now)
+
+    async def fetch_at(client: httpx.AsyncClient, dt: datetime) -> Optional[tuple[str, str]]:
+        try:
+            r = await client.get(AVWX_TAF_URL, params={
+                "ids": icao, "format": "json", "date": dt.strftime("%Y%m%d_%H%M"),
+            })
+            r.raise_for_status()
+            arr = r.json()
+            if not arr:
+                return None
+            item = arr[0]
+            raw = item.get("rawTAF")
+            issue = item.get("issueTime")
+            if not raw or not issue:
+                return None
+            return issue, raw
+        except Exception:
+            return None
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        results = await asyncio.gather(*[fetch_at(client, t) for t in sample_times])
+
+    seen_raw: set[str] = set()
+    history: list[dict] = []
+    for r in results:
+        if r is None or r[1] in seen_raw:
+            continue
+        seen_raw.add(r[1])
+        issue_str, raw = r
+        try:
+            issue_dt = datetime.fromisoformat(issue_str.rstrip("Z")).replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        history.append({
+            "issue_time": issue_dt.isoformat().replace("+00:00", "Z"),
+            "raw": raw,
+            "periods": parse_taf_periods(raw, issue_dt),
+        })
+    history.sort(key=lambda h: h["issue_time"])
+    return history
+
+
 @router.get("/metar/trend")
 async def get_metar_trend(
     icao: str = Query(...),
@@ -482,10 +578,10 @@ async def get_metar_trend(
             resp.raise_for_status()
             raw_list = resp.json()
         except Exception as e:
-            return {"icao": icao, "metar": [], "taf_periods": [], "error": str(e)}
+            return {"icao": icao, "metar": [], "taf_periods": [], "taf_history": [], "error": str(e)}
 
     if not isinstance(raw_list, list) or not raw_list:
-        return {"icao": icao, "metar": [], "taf_periods": []}
+        return {"icao": icao, "metar": [], "taf_periods": [], "taf_history": []}
 
     raw_list.sort(key=lambda r: r.get("obsTime") or r.get("reportTime") or 0)
     parsed = [_parse_metar(r) for r in raw_list]
@@ -515,7 +611,13 @@ async def get_metar_trend(
             ref_dt = datetime.now(timezone.utc)
         taf_periods = parse_taf_periods(taf_raw, ref_dt)
 
-    return {"icao": icao, "metar": metar_points, "taf_periods": taf_periods, "taf_raw": taf_raw}
+    taf_history = await _fetch_taf_history(icao, hours)
+
+    return {
+        "icao": icao, "metar": metar_points,
+        "taf_periods": taf_periods, "taf_raw": taf_raw,
+        "taf_history": taf_history,
+    }
 
 
 @router.post("/history/collect")

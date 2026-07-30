@@ -7,7 +7,7 @@ type Tab = 'layers' | 'spatial'
 
 export default function RightPanel() {
   const [tab, setTab] = useState<Tab>('layers')
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(true)
 
   return (
     <div className="absolute bottom-6 right-4 z-20 w-64 select-none">

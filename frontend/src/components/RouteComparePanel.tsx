@@ -112,19 +112,19 @@ export default function RouteComparePanel() {
 
   return (
     <div
-      className="absolute top-4 right-[22rem] z-30 w-[360px] max-h-[calc(100vh-2rem)] flex flex-col bg-gray-950/95 backdrop-blur border border-gray-700 rounded-xl shadow-2xl overflow-hidden"
+      className="absolute top-4 right-[28rem] z-30 w-[360px] max-h-[calc(100vh-2rem)] flex flex-col bg-gray-950/95 backdrop-blur border border-gray-700 rounded-xl shadow-2xl overflow-hidden"
       style={{ transform: `translate(${drag.x}px, ${drag.y}px)` }}
     >
       <div
         onMouseDown={startDrag}
         onClick={() => setExpanded(v => !v)}
-        className="flex items-center justify-between px-3 py-2.5 border-b border-gray-700 bg-gray-900/80 shrink-0 cursor-grab active:cursor-grabbing select-none"
+        className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-gray-700 bg-gray-900/80 shrink-0 cursor-grab active:cursor-grabbing select-none"
       >
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-white">
-          <GripHorizontal size={13} className="text-gray-600" />
-          <GitCompare size={13} /> {isComparing ? '항로 비교' : metas.length === 1 ? '항로 정보' : `항로 ${metas.length}개`}
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-white min-w-0">
+          <GripHorizontal size={13} className="text-gray-600 shrink-0" />
+          <GitCompare size={13} className="shrink-0" /> <span className="shrink-0">{isComparing ? '항로 비교' : metas.length === 1 ? '항로 정보' : `항로 ${metas.length}개`}</span>
           {!expanded && (
-            <span className="text-gray-500 font-normal ml-1">
+            <span className="text-gray-500 font-normal ml-1 truncate">
               {isComparing
                 ? `${metas[0].distance} vs ${metas[1].distance} NM`
                 : metas.length === 1
@@ -134,7 +134,7 @@ export default function RouteComparePanel() {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {expanded ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
           <button
             onMouseDown={e => e.stopPropagation()}

@@ -29,6 +29,7 @@ const initialState: AppState = {
     fir: false,
     curfew: true,
     traffic: false,
+    weatherAlerts: false,
   },
   spatialMode: null,
   spatialPoints: [],
@@ -55,6 +56,7 @@ const initialState: AppState = {
   activeAirportTab: 'weather',
   weatherData: {},
   weatherAlerts: [],
+  weatherAlertTyphoonOnly: false,
   weatherLoading: false,
   selectedAirportIcao: null,
   weatherConfig: loadConfig(),
@@ -208,6 +210,8 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, weatherAlerts: [...action.payload, ...state.weatherAlerts].slice(0, 20) }
     case 'DISMISS_WEATHER_ALERT':
       return { ...state, weatherAlerts: state.weatherAlerts.filter(a => a.id !== action.payload) }
+    case 'SET_WEATHER_ALERT_TYPHOON_ONLY':
+      return { ...state, weatherAlertTyphoonOnly: action.payload }
     case 'SET_WEATHER_LOADING':
       return { ...state, weatherLoading: action.payload }
     case 'SET_TRAFFIC_DATA':

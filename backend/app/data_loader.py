@@ -743,17 +743,23 @@ class NavDataStore:
         if ids is not None:
             return [self.routes[i] for i in ids if i < len(self.routes)]
 
+        # origin/destination/fix가 여러 개 동시에 오면 전부 만족하는 교집합이어야
+        # 함(예: "N892 지나는 RKSI→VVPQ 항로") — 예전엔 fix가 있으면 origin/
+        # destination을 아예 무시하는 버그가 있었음
+        id_set: Optional[set] = None
+
+        def _intersect(new_ids: set) -> None:
+            nonlocal id_set
+            id_set = new_ids if id_set is None else (id_set & new_ids)
+
         if fix:
-            token = fix.upper()
-            id_set = set(self.route_by_token.get(token, []))
-        elif origin and destination:
-            id_set = set(self.route_by_origin.get(origin.upper(), [])) & \
-                     set(self.route_by_dest.get(destination.upper(), []))
-        elif origin:
-            id_set = set(self.route_by_origin.get(origin.upper(), []))
-        elif destination:
-            id_set = set(self.route_by_dest.get(destination.upper(), []))
-        else:
+            _intersect(set(self.route_by_token.get(fix.upper(), [])))
+        if origin:
+            _intersect(set(self.route_by_origin.get(origin.upper(), [])))
+        if destination:
+            _intersect(set(self.route_by_dest.get(destination.upper(), [])))
+
+        if id_set is None:
             return self.routes
 
         return [self.routes[i] for i in sorted(id_set) if i < len(self.routes)]

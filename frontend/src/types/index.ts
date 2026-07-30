@@ -66,13 +66,12 @@ export interface GeoJSONFeature {
 }
 
 export interface SearchResult {
-  type: 'airport' | 'airway' | 'waypoint' | 'route'
+  type: 'airport' | 'airway' | 'waypoint'
   id: string
   name: string
   lat: number | null
   lon: number | null
   description: string
-  route?: RouteMeta  // type === 'route'일 때만 채워짐
 }
 
 export interface AircraftState {
@@ -160,11 +159,18 @@ export interface TafPeriod {
   ceiling_ft: number | null
 }
 
+export interface TafSnapshot {
+  issue_time: string
+  raw: string
+  periods: TafPeriod[]
+}
+
 export interface WeatherTrendData {
   icao: string
   metar: MetarPoint[]
   taf_periods: TafPeriod[]
   taf_raw: string | null
+  taf_history: TafSnapshot[]  // 과거 시점별로 실제 유효했던 TAF 이력 (BASE만 깔리는 일직선 방지용)
   error?: string
 }
 
@@ -248,6 +254,7 @@ export interface LayerState {
   fir: boolean
   curfew: boolean
   traffic: boolean
+  weatherAlerts: boolean  // 초기 화면 우측 상단 기상 알람 토스트 표출 여부
 }
 
 export interface AppState {
@@ -307,6 +314,7 @@ export interface AppState {
   // Weather
   weatherData: Record<string, MetarData>
   weatherAlerts: WeatherAlert[]
+  weatherAlertTyphoonOnly: boolean  // true면 태풍 반경과 겹치는 공항의 알림만 표출
   weatherLoading: boolean
   selectedAirportIcao: string | null
   weatherConfig: WeatherConfig
@@ -363,6 +371,7 @@ export type AppAction =
   | { type: 'SET_WEATHER_DATA'; payload: MetarData[] }
   | { type: 'ADD_WEATHER_ALERTS'; payload: WeatherAlert[] }
   | { type: 'DISMISS_WEATHER_ALERT'; payload: string }
+  | { type: 'SET_WEATHER_ALERT_TYPHOON_ONLY'; payload: boolean }
   | { type: 'SET_WEATHER_LOADING'; payload: boolean }
   | { type: 'SET_SELECTED_AIRPORT'; payload: string | null }
   | { type: 'SET_WEATHER_CONFIG'; payload: WeatherConfig }

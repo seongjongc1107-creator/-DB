@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, X, Route, Building2, MapPin, Hash } from 'lucide-react'
+import { Search, X, Route, Building2, MapPin } from 'lucide-react'
 import * as turf from '@turf/turf'
 import { api } from '../api/client'
 import { useApp } from '../AppContext'
@@ -9,7 +9,6 @@ const TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: s
   airway:  { label: 'AWY', icon: <Route size={10} />,     color: 'bg-orange-900/60',  textColor: 'text-orange-300', chipColor: 'bg-orange-900/40 border-orange-700 text-orange-300' },
   airport: { label: 'APT', icon: <Building2 size={10} />, color: 'bg-red-900/60',     textColor: 'text-red-300',    chipColor: 'bg-red-900/40 border-red-700 text-red-300'    },
   waypoint:{ label: 'WPT', icon: <MapPin size={10} />,    color: 'bg-gray-700/80',    textColor: 'text-gray-300',   chipColor: 'bg-[#C08497]/20 border-[#C08497] text-[#D8A8B5]' },
-  route:   { label: 'RTE', icon: <Hash size={10} />,      color: 'bg-blue-900/60',    textColor: 'text-blue-300',   chipColor: 'bg-blue-900/40 border-blue-700 text-blue-300'   },
 }
 
 export default function SearchBar() {
@@ -54,7 +53,9 @@ export default function SearchBar() {
     newRoutes: import('../types').RouteMeta[],
     newGeoJSON: import('../types').GeoJSONFeatureCollection,
   ) {
-    const isFirst = state.highlightPoints.length === 0
+    // 출발지/도착지를 이미 골라둔 상태에서 airway/waypoint를 검색하면(순서가
+    // 반대여도) 교집합으로 좁혀야 "RKSI→VVPQ 중 N892 지나는 것만" 같은 조합이 됨
+    const isFirst = state.highlightPoints.length === 0 && !state.origin && !state.destination
 
     if (isFirst) {
       dispatch({ type: 'SET_ALL_ROUTES', payload: newRoutes })
@@ -141,24 +142,6 @@ export default function SearchBar() {
       }
     }
 
-    if (result.type === 'route' && result.route) {
-      dispatch({ type: 'SET_LOADING', payload: true })
-      try {
-        const matchedGeoJSON = await api.routes.geometry({ ids: result.id })
-        applyRoutes([result.route], matchedGeoJSON)
-        dispatch({ type: 'SET_SELECTED_ROUTES', payload: [result.route.id] })
-
-        const feature = matchedGeoJSON.features[0]
-        if (feature) {
-          try {
-            const [minLon, minLat, maxLon, maxLat] = turf.bbox(feature as any)
-            dispatch({ type: 'SET_FIT_BOUNDS', payload: [[minLon, minLat], [maxLon, maxLat]] })
-          } catch {}
-        }
-      } finally {
-        dispatch({ type: 'SET_LOADING', payload: false })
-      }
-    }
   }
 
   function removeHighlight(id: string, type: SearchResult['type']) {
@@ -202,7 +185,7 @@ export default function SearchBar() {
   return (
     <div ref={containerRef} className="relative">
       <p className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold mb-1.5">
-        Airway · Airport · Waypoint · Route #
+        Airway · Airport · Waypoint
       </p>
 
       {/* Input */}
@@ -212,7 +195,7 @@ export default function SearchBar() {
         <Search size={13} className={`shrink-0 transition-colors ${focused ? 'text-blue-400' : 'text-gray-500'}`} />
         <input
           className="flex-1 bg-transparent text-sm text-white placeholder-gray-600 outline-none min-w-0"
-          placeholder="A582, RKSI, MINTO, RKSI VVCR 27…"
+          placeholder="A582, RKSI, MINTO…"
           value={query}
           onChange={e => setQuery(e.target.value)}
           onFocus={() => { setFocused(true); results.length > 0 && setOpen(true) }}

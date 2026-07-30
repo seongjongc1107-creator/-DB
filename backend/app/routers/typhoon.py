@@ -82,6 +82,13 @@ def _parse_item(item: ET.Element) -> dict | None:
     if etype != "TC":
         return None
 
+    # GDACS는 소멸된지 며칠 지난 태풍도 RSS에 계속 남겨둠 — iscurrent=false면
+    # 해당 에피소드가 이미 종료된 것이므로 제외 (예: NOUL-26이 todate가 지났는데도
+    # 계속 표출되던 문제).
+    is_current = item.findtext(f"{{{GDACS_NS}}}iscurrent") or "true"
+    if is_current.strip().lower() != "true":
+        return None
+
     name = item.findtext(f"{{{GDACS_NS}}}eventname") or item.findtext("title") or "Unknown"
     alert = item.findtext(f"{{{GDACS_NS}}}alertlevel") or "Green"
 

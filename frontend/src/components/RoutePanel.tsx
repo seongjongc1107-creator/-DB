@@ -39,16 +39,20 @@ export default function RoutePanel() {
 
   useEffect(() => {
     if (!state.origin && !state.destination) return
+    // 이미 airway/waypoint를 검색해서 활성화해둔 상태라면(예: N892 검색 후) 출발지·
+    // 도착지까지 같이 골랐을 때 "그 항공로를 지나는 RKSI→VVPQ 항로"처럼 세 조건을
+    // 한 번에 교집합으로 좁혀줌 — 백엔드가 origin/destination/fix를 동시에 지원함
+    const fix = state.activeAirway || state.activeWaypoint || undefined
     dispatch({ type: 'SET_LOADING', payload: true })
     Promise.all([
-      api.routes.list({ origin: state.origin || undefined, destination: state.destination || undefined }),
-      api.routes.geometry({ origin: state.origin || undefined, destination: state.destination || undefined }),
+      api.routes.list({ origin: state.origin || undefined, destination: state.destination || undefined, fix }),
+      api.routes.geometry({ origin: state.origin || undefined, destination: state.destination || undefined, fix }),
     ]).then(([listData, geoData]) => {
       dispatch({ type: 'SET_ALL_ROUTES', payload: listData.routes })
       dispatch({ type: 'SET_ROUTE_GEOJSON', payload: geoData })
       dispatch({ type: 'SET_SELECTED_ROUTES', payload: [] })
     }).catch(() => {}).finally(() => dispatch({ type: 'SET_LOADING', payload: false }))
-  }, [state.origin, state.destination, dispatch])
+  }, [state.origin, state.destination, state.activeAirway, state.activeWaypoint, dispatch])
 
   // 공간 필터 해제 시 대체 항로 모드도 해제
   useEffect(() => {
@@ -179,7 +183,7 @@ export default function RoutePanel() {
   const affectedIdSet = useMemo(() => new Set(state.affectedRouteIds), [state.affectedRouteIds])
   // 공간 필터(태풍 등)에 걸리는 항로를 최상단으로 — 목록 자체는 그대로 유지해서
   // 영향 없는 항로도 선택해서 실제로 안전한지 지도에서 확인할 수 있게 함
-  const routes = useMemo(() => {
+  const sortedRoutes = useMemo(() => {
     if (affectedIdSet.size === 0) return state.allRoutes
     return [...state.allRoutes].sort((a, b) => {
       const aAff = affectedIdSet.has(a.id) ? 0 : 1
@@ -187,11 +191,24 @@ export default function RoutePanel() {
       return aAff - bAff
     })
   }, [state.allRoutes, affectedIdSet])
+
+  // 항로 번호 추가 필터 — 지금 보이는 목록(영향 항로 정렬 포함) 안에서만 더 좁힘.
+  // 공백으로 구분해서 여러 번호를 한 번에 입력하면 OR로 매칭 (예: "27 96 11").
+  const [numberFilter, setNumberFilter] = useState('')
+  const routes = useMemo(() => {
+    const numbers = numberFilter.trim().split(/\s+/).filter(Boolean).map(Number).filter(n => !isNaN(n))
+    if (numbers.length === 0) return sortedRoutes
+    const numberSet = new Set(numbers)
+    return sortedRoutes.filter(r => numberSet.has(r.number))
+  }, [sortedRoutes, numberFilter])
+
   const hasSpatialFilter = !!state.spatialFilter
 
-  // 최대 10개까지 선택 가능(지도에서 동시에 보기용). 11번째를 고르면 가장 먼저 고른 걸 밀어냄.
-  function toggleRouteSelect(id: number) {
-    dispatch({ type: 'TOGGLE_SELECTED_ROUTE', payload: id })
+  // 최대 10개까지 선택 가능(지도에서 동시에 보기용). 기본은 단일 선택(클릭 시
+  // 교체) — Ctrl/Cmd를 누른 채 클릭해야 복수 선택으로 추가/제거됨.
+  function selectRoute(id: number, multi: boolean) {
+    if (multi) dispatch({ type: 'TOGGLE_SELECTED_ROUTE', payload: id })
+    else dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
   }
 
   function exportCsv() {
@@ -294,6 +311,26 @@ export default function RoutePanel() {
                 </button>
               </div>
             </div>
+            {/* 지금 보이는 목록 안에서 항로 번호로 추가 필터 */}
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span className="text-gray-600 text-xs shrink-0">#</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="항로 번호로 필터 (예: 27 96 11)"
+                value={numberFilter}
+                onChange={e => setNumberFilter(e.target.value)}
+                className="flex-1 bg-gray-800 border border-gray-700 text-white text-xs rounded px-2 py-1 outline-none focus:border-blue-500 placeholder-gray-600"
+              />
+              {numberFilter && (
+                <button
+                  onClick={() => setNumberFilter('')}
+                  className="text-gray-500 hover:text-gray-300 text-xs shrink-0"
+                >
+                  지우기
+                </button>
+              )}
+            </div>
             {affectedIdSet.size > 0 && (
               <div className="text-[10px] text-orange-400 mb-1">
                 영향 항로 {affectedIdSet.size}개 — 위로 정렬했어요. 나머지도 선택해서 실제로 안전한지 확인할 수 있어요
@@ -302,10 +339,10 @@ export default function RoutePanel() {
             {state.selectedRouteIds.length > 0 && (
               <div className="text-[10px] text-gray-500 mb-1">
                 {state.selectedRouteIds.length === 1
-                  ? '비교하려면 항로를 하나 더 선택하세요 (최대 10개까지 동시 선택 가능)'
+                  ? 'Ctrl+클릭으로 항로를 더 추가할 수 있어요 (최대 10개)'
                   : state.selectedRouteIds.length === 2
                     ? '2개 선택됨 — 상세 비교 패널을 펼쳐볼 수 있어요'
-                    : `${state.selectedRouteIds.length}개 선택됨 — 11번째를 고르면 먼저 선택한 항로가 빠집니다`}
+                    : `${state.selectedRouteIds.length}개 선택됨 — Ctrl+클릭으로 추가/제거`}
               </div>
             )}
             {routes.map(r => {
@@ -324,7 +361,7 @@ export default function RoutePanel() {
                         : 'bg-gray-800 hover:bg-gray-750 border-transparent text-gray-300 hover:text-white'
                   }`}
                   style={isSelected ? { backgroundColor: color + '26', borderColor: color } : undefined}
-                  onClick={() => toggleRouteSelect(r.id)}
+                  onClick={e => selectRoute(r.id, e.ctrlKey || e.metaKey)}
                   onMouseEnter={e => {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
                     setRouteTooltip({ x: rect.right + 8, y: rect.top, text: r.route })

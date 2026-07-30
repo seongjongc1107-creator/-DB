@@ -17,6 +17,7 @@ const OPS_LAYER_CONFIG: LayerConfigItem[] = [
   { key: 'routes',        label: 'Navblue 항로',    color: 'bg-blue-500' },
   { key: 'activeAirway',  label: '검색 Airway 강조', color: 'bg-[#C08497]' },
   { key: 'matchedRoutes', label: '검색 결과 항로',  color: 'bg-emerald-500' },
+  { key: 'weatherAlerts', label: '기상 알람',       color: 'bg-amber-400' },
   { key: 'typhoon',       label: '태풍 구역',       color: 'bg-orange-500' },
 ]
 
@@ -38,11 +39,14 @@ export default function LayerPanel() {
           }`}
         />
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-1">
         <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${color}`} />
         <span className="text-xs text-gray-300 group-hover:text-white transition-colors">
           {label}
         </span>
+        {key === 'weatherAlerts' && state.weatherAlerts.length > 0 && (
+          <span className="ml-auto text-[10px] text-gray-500">{state.weatherAlerts.length}개</span>
+        )}
       </div>
     </label>
   )
