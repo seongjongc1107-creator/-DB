@@ -72,6 +72,12 @@ export default function RoutePanel() {
     dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: null })
     dispatch({ type: 'CLEAR_HIGHLIGHTS' })
     dispatch({ type: 'CLEAR_AIRWAY_ENDPOINTS' })
+    // 영역(폴리곤/반경) 검색 조건도 같이 초기화
+    dispatch({ type: 'CLEAR_SPATIAL' })
+    dispatch({ type: 'SET_SELECTED_AIRPORT', payload: null })
+    setNumberFilter('')
+    // 지도도 초기 화면(첫 로드 시 보이던 시점/줌)으로 복귀
+    dispatch({ type: 'SET_FLY_TO', payload: { lon: 127, lat: 35, zoom: 4 } })
   }
 
   function exitAltMode() {

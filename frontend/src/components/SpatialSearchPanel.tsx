@@ -160,6 +160,7 @@ export default function SpatialSearchPanel() {
     if (pts.length < 3) { setPolyError('꼭짓점이 3개 이상이어야 합니다.'); return }
     setPolyError('')
     dispatch({ type: 'SET_SPATIAL_FILTER', payload: { type: 'polygon', ring: [...pts, pts[0]] } })
+    flyToRing(pts)
   }
 
   // ── Circle (draw mode) ──────────────────────────────────────────
@@ -187,6 +188,7 @@ export default function SpatialSearchPanel() {
     const circle = turf.circle(center, nm, { steps: 64, units: 'nauticalmiles' })
     const ring = circle.geometry.coordinates[0] as number[][]
     dispatch({ type: 'SET_SPATIAL_FILTER', payload: { type: 'circle', ring, center, radiusNm: nm } })
+    flyToRing(ring)
   }
 
   function clear() {
@@ -194,6 +196,17 @@ export default function SpatialSearchPanel() {
     setShapeType(null)
     setPolyError('')
     setCircleError('')
+  }
+
+  // 좌표를 직접 입력해서 영역 검색을 완료하면 그 좌표가 어디인지 바로 보이게
+  // 지도를 이동 — 직접 눈으로 보고 그린 게 아니라서 입력만으로는 화면에 안 보일 수 있음
+  function flyToRing(points: number[][]) {
+    const lons = points.map(p => p[0])
+    const lats = points.map(p => p[1])
+    dispatch({
+      type: 'SET_FIT_BOUNDS',
+      payload: [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+    })
   }
 
   const centerPt = state.spatialPoints[0]
