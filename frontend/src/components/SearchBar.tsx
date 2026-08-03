@@ -235,12 +235,14 @@ export default function SearchBar() {
       {/* Dropdown */}
       {open && results.length > 0 && (
         <div className="absolute top-full mt-1 left-0 right-0 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden max-h-64 overflow-y-auto">
-          {results.map(r => {
+          {results.map((r, i) => {
             const meta = TYPE_META[r.type]
-            const alreadySelected = highlights.some(h => h.id === r.id)
+            // 이름이 같아도 위치(좌표)가 다른 경우가 있어(예: PIANO가 미국·대만에
+            // 둘 다 있음) id만으로는 구분이 안 됨 — 좌표까지 같이 봐야 정확히 매칭됨
+            const alreadySelected = highlights.some(h => h.id === r.id && h.lat === r.lat && h.lon === r.lon)
             return (
               <button
-                key={`${r.type}-${r.id}`}
+                key={`${r.type}-${r.id}-${r.lat}-${r.lon}-${i}`}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-gray-800 last:border-0 ${
                   alreadySelected ? 'bg-gray-800/60 opacity-60' : 'hover:bg-gray-800'
                 }`}

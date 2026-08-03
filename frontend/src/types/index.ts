@@ -243,6 +243,27 @@ export interface TyphoonTrackPoint extends Typhoon {
   pressure_hpa?: number | null
 }
 
+export interface VolcanicAshStep {
+  label: string  // 'OBS' | '+6HR' | '+12HR' | '+18HR'
+  time: string | null
+  polygon: [number, number][] | null  // [lon, lat][], null이면 이 구간엔 화산재 없음(NO VA EXP)
+  fl_min: number | null
+  fl_max: number | null
+  status: 'ash' | 'no_ash' | 'unknown'
+}
+
+export interface VolcanicAshAdvisory {
+  volcano: string
+  area: string
+  lat: number | null
+  lon: number | null
+  advisory_nr: string
+  dtg: string
+  vaac: string
+  steps: VolcanicAshStep[]
+  raw_text: string
+}
+
 export interface LayerState {
   routes: boolean        // navblue 저장 항로
   airports: boolean
@@ -251,6 +272,7 @@ export interface LayerState {
   activeAirway: boolean  // 검색으로 찾은 airway 1개 강조 (navdata 기하, 점선)
   matchedRoutes: boolean // airway 검색으로 찾은 navblue 항로 (실선)
   typhoon: boolean
+  volcanicAsh: boolean   // 화산재 구역 (Tokyo VAAC)
   fir: boolean
   curfew: boolean
   traffic: boolean
@@ -292,6 +314,9 @@ export interface AppState {
   typhoonLoading: boolean
   typhoonTrack: TyphoonTrackPoint[] | null
   typhoonTrackStep: number
+  // Volcanic ash
+  volcanicAsh: VolcanicAshAdvisory[]
+  volcanicAshLoading: boolean
   // UI
   searchResults: SearchResult[]
   isLoading: boolean
@@ -349,6 +374,8 @@ export type AppAction =
   | { type: 'SET_TYPHOON_LOADING'; payload: boolean }
   | { type: 'SET_TYPHOON_TRACK'; payload: TyphoonTrackPoint[] | null }
   | { type: 'SET_TYPHOON_TRACK_STEP'; payload: number }
+  | { type: 'SET_VOLCANIC_ASH'; payload: VolcanicAshAdvisory[] }
+  | { type: 'SET_VOLCANIC_ASH_LOADING'; payload: boolean }
   | { type: 'SET_ALT_ROUTE_MODE'; payload: boolean }
   | { type: 'SET_FIR_GEOJSON'; payload: GeoJSONFeatureCollection | null }
   | { type: 'ADD_HIGHLIGHT'; payload: SearchResult }

@@ -1,4 +1,4 @@
-import type { AircraftState, AirportDetail, CollectStatus, CurfewInfo, GeoJSONFeatureCollection, MetarData, RouteMeta, SearchResult, Typhoon, TyphoonTrackPoint, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherTrendData } from '../types'
+import type { AircraftState, AirportDetail, CollectStatus, CurfewInfo, GeoJSONFeatureCollection, MetarData, RouteMeta, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherTrendData } from '../types'
 
 const BASE = '/api'
 
@@ -56,6 +56,9 @@ export const api = {
     active: () => get<{ source: string; count: number; typhoons: Typhoon[]; error?: string }>('/typhoon/active'),
     mock: () => get<{ name: string; count: number; track: TyphoonTrackPoint[] }>('/typhoon/mock'),
     track: (eventId: string) => get<{ name: string; count: number; track: TyphoonTrackPoint[]; error?: string }>(`/typhoon/track/${eventId}`),
+  },
+  volcanicAsh: {
+    active: () => get<{ source: string; count: number; advisories: VolcanicAshAdvisory[]; error?: string }>('/volcanic-ash/active'),
   },
   weather: {
     bulk: (icaos: string[]) =>

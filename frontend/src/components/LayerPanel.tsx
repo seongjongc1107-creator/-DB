@@ -19,6 +19,7 @@ const OPS_LAYER_CONFIG: LayerConfigItem[] = [
   { key: 'matchedRoutes', label: '검색 결과 항로',  color: 'bg-emerald-500' },
   { key: 'weatherAlerts', label: '기상 알람',       color: 'bg-amber-400' },
   { key: 'typhoon',       label: '태풍 구역',       color: 'bg-orange-500' },
+  { key: 'volcanicAsh',   label: '화산재 구역',     color: 'bg-stone-400' },
 ]
 
 export default function LayerPanel() {
@@ -46,6 +47,12 @@ export default function LayerPanel() {
         </span>
         {key === 'weatherAlerts' && state.weatherAlerts.length > 0 && (
           <span className="ml-auto text-[10px] text-gray-500">{state.weatherAlerts.length}개</span>
+        )}
+        {key === 'volcanicAsh' && state.volcanicAshLoading && (
+          <span className="ml-auto text-[10px] text-gray-500">조회 중…</span>
+        )}
+        {key === 'volcanicAsh' && !state.volcanicAshLoading && state.volcanicAsh.length > 0 && (
+          <span className="ml-auto text-[10px] text-gray-500">{state.volcanicAsh.length}개</span>
         )}
       </div>
     </label>

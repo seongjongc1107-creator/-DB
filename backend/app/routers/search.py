@@ -51,16 +51,23 @@ def search(q: str = Query(..., min_length=1)):
     # 정확히 일치 > 짧은 이름 우선 — 안 그러면 "APU" 자체보다 "APUGO" 같은
     # 접두어 매칭이 먼저 채워져서 정작 찾던 짧은 navaid가 15개 제한에 밀려남.
     wp_matches.sort(key=lambda x: (x != q_up, len(x), x))
-    for fix_id in wp_matches[:15]:
-        lon, lat = store.fix_lookup[fix_id][0]
+    # 같은 이름이 지구상 여러 위치에 동시에 존재하는 경우가 있음(예: "PIANO"가
+    # 미국과 대만에 둘 다 있음) — fix_lookup[name]은 그 좌표들을 리스트로 다 갖고
+    # 있는데, 예전엔 [0]번째 좌표만 봐서 나머지 위치가 검색에서 통째로 빠졌었음.
+    # 이름당 15개 제한은 유지하되, 좌표 개수만큼 결과를 늘어놓음.
+    for fix_id in wp_matches:
+        if len(results) >= 50:
+            break
         kind = "Waypoint" if fix_id in store.waypoints else "NDB" if fix_id in store.ndbs else "Navaid"
-        results.append({
-            "type": "waypoint",
-            "id": fix_id,
-            "name": fix_id,
-            "lat": lat,
-            "lon": lon,
-            "description": kind,
-        })
+        coords = store.fix_lookup[fix_id]
+        for lon, lat in coords[:15]:
+            results.append({
+                "type": "waypoint",
+                "id": fix_id,
+                "name": fix_id,
+                "lat": lat,
+                "lon": lon,
+                "description": kind if len(coords) == 1 else f"{kind} · {lat:.2f}°{'N' if lat >= 0 else 'S'} {abs(lon):.2f}°{'E' if lon >= 0 else 'W'}",
+            })
 
     return results[:50]

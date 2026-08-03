@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 
 from .db import init_db
 from .data_loader import store
-from .routers import routes, navdata, search, typhoon, weather
+from .routers import routes, navdata, search, typhoon, weather, volcanic_ash
 from .routers.curfew import load_curfew_file
 
 STATIC_DIR = Path(__file__).parent.parent.parent / "frontend" / "dist"
@@ -40,6 +40,7 @@ app.include_router(navdata.router, prefix="/api/navdata", tags=["navdata"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(typhoon.router, prefix="/api/typhoon", tags=["typhoon"])
 app.include_router(weather.router, prefix="/api/weather", tags=["weather"])
+app.include_router(volcanic_ash.router, prefix="/api/volcanic-ash", tags=["volcanic-ash"])
 
 from .routers import curfew as curfew_module
 app.include_router(curfew_module.router, prefix="/api/curfew", tags=["curfew"])

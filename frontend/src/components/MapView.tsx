@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { X } from 'lucide-react'
 import { api } from '../api/client'
 import Map, { Source, Layer, Marker, type MapRef, type MapLayerMouseEvent } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -73,12 +74,29 @@ function addPlaneIcons(map: import('maplibre-gl').Map) {
 
 const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] }
 
+// 화산재 구역 시간대 — 색은 신호등처럼 OBS(빨강, 가장 급함)부터 +18h(옅은 노랑)까지
+const ASH_STEP_INDEX: Record<string, number> = { OBS: 0, '+6HR': 1, '+12HR': 2, '+18HR': 3 }
+const ASH_STEP_COLOR: any = [
+  'match', ['get', 'step_label'],
+  'OBS', '#ef4444',
+  '+6HR', '#f97316',
+  '+12HR', '#eab308',
+  '+18HR', '#fde047',
+  '#a8a29e',
+]
+
 export default function MapView() {
   const { state, dispatch } = useApp()
   const mapRef = useRef<MapRef>(null)
   const [hoveredId, setHoveredId] = useState<number | null>(null)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; props: Record<string, unknown> } | null>(null)
   const [mousePos, setMousePos] = useState<[number, number] | null>(null)
+  // 화산재 상세 팝업 — 호버 툴팁과 달리 클릭으로 열고 닫으며, 마우스가 빠져나가도
+  // 안 사라져서 전문을 스크롤해서 끝까지 읽을 수 있음
+  const [ashPopup, setAshPopup] = useState<{ x: number; y: number; props: Record<string, unknown> } | null>(null)
+  // 드래그로 옮긴 화산재 팝업 위치 — null이면 클릭 지점 기준 기본 위치 사용
+  const [ashPopupPos, setAshPopupPos] = useState<{ x: number; y: number } | null>(null)
+  const ashDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [planeIconsReady, setPlaneIconsReady] = useState(false)
 
@@ -156,6 +174,16 @@ export default function MapView() {
     }).catch(() => {})
   }, [state.layers.typhoon, state.typhoons.length, state.typhoonTrack, dispatch])
 
+  // 화산재 구역 레이어를 처음 켤 때 도쿄 VAAC 활성 권고를 불러옴
+  useEffect(() => {
+    if (!state.layers.volcanicAsh || state.volcanicAsh.length > 0) return
+    dispatch({ type: 'SET_VOLCANIC_ASH_LOADING', payload: true })
+    api.volcanicAsh.active()
+      .then(data => { if (data.advisories) dispatch({ type: 'SET_VOLCANIC_ASH', payload: data.advisories }) })
+      .catch(() => {})
+      .finally(() => dispatch({ type: 'SET_VOLCANIC_ASH_LOADING', payload: false }))
+  }, [state.layers.volcanicAsh, state.volcanicAsh.length, dispatch])
+
   // Convert traffic to GeoJSON
   const trafficGeoJSON = useMemo(() => ({
     type: 'FeatureCollection' as const,
@@ -188,6 +216,8 @@ export default function MapView() {
   // ── Click handler ────────────────────────────────────────────────
   const onClick = useCallback((e: MapLayerMouseEvent) => {
     setContextMenu(null)
+    setAshPopup(null)
+    setAshPopupPos(null)
     // Polygon drawing mode
     if (state.spatialMode === 'polygon') {
       dispatch({ type: 'ADD_SPATIAL_POINT', payload: [e.lngLat.lng, e.lngLat.lat] })
@@ -206,6 +236,12 @@ export default function MapView() {
       return
     }
     const f = features[0]
+    // 화산재 구역/화산 위치 클릭 → 고정 팝업(전문 스크롤 가능)
+    if (f.layer?.id === 'volcanic-ash-fill' || f.layer?.id === 'volcanic-ash-volcano-point') {
+      setAshPopup({ x: e.point.x, y: e.point.y, props: f.properties ?? {} })
+      setAshPopupPos(null)
+      return
+    }
     // Airport click → open METAR panel
     if (f.layer?.id === 'airports-circle-hit') {
       const icao = f.properties?.id as string | undefined
@@ -295,6 +331,48 @@ export default function MapView() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [contextMenu])
+
+  // ESC로 화산재 팝업 닫기
+  useEffect(() => {
+    if (!ashPopup) return
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setAshPopup(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [ashPopup])
+
+  // 화산재 팝업 드래그 — 헤더를 잡고 끌면 어디로든 옮길 수 있어서, 화면 아래쪽에
+  // 열려 스크롤해도 끝까지 안 보일 때 위쪽으로 옮겨서 전문을 다 읽을 수 있음
+  const onAshPopupDragStart = useCallback((e: React.MouseEvent) => {
+    if (!ashPopup) return
+    const base = ashPopupPos ?? {
+      x: Math.min(ashPopup.x + 14, window.innerWidth - 340),
+      y: Math.min(ashPopup.y - 8, window.innerHeight - 200),
+    }
+    ashDragRef.current = { startX: e.clientX, startY: e.clientY, origX: base.x, origY: base.y }
+    e.preventDefault()
+  }, [ashPopup, ashPopupPos])
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      const drag = ashDragRef.current
+      if (!drag) return
+      const x = drag.origX + (e.clientX - drag.startX)
+      const y = drag.origY + (e.clientY - drag.startY)
+      setAshPopupPos({
+        x: Math.min(Math.max(x, -260), window.innerWidth - 40),
+        y: Math.min(Math.max(y, 0), window.innerHeight - 40),
+      })
+    }
+    function onUp() { ashDragRef.current = null }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
 
   // 우클릭 메뉴가 닫히면 목록 호버 강조도 같이 해제
   useEffect(() => {
@@ -410,6 +488,44 @@ export default function MapView() {
     return { type: 'FeatureCollection' as const, features: features as any[] }
   }, [state.typhoons])
 
+  // ── 화산재 구역 — OBS(현재 관측) + 6/12/18시간 예보 구간 폴리곤 + 화산 위치 점 ──
+  const volcanicAshData = useMemo(() => {
+    if (state.volcanicAsh.length === 0) return EMPTY_FC
+    const polyFeatures = state.volcanicAsh.flatMap(a =>
+      a.steps
+        .filter(s => s.polygon)
+        .map(s => ({
+          type: 'Feature' as const,
+          geometry: { type: 'Polygon' as const, coordinates: [s.polygon!] },
+          properties: {
+            volcano: a.volcano, area: a.area, advisory_nr: a.advisory_nr,
+            vaac: a.vaac, dtg: a.dtg, raw_text: a.raw_text,
+            fl_min: s.fl_min, fl_max: s.fl_max,
+            step_label: s.label, step_time: s.time,
+            step_index: ASH_STEP_INDEX[s.label] ?? 0,
+          },
+        }))
+    )
+    // 화산 자체의 위치(정상 좌표, PSN) — 예상 확산 구역과는 별개로 항상 표시
+    const volcanoPoints = state.volcanicAsh
+      .filter(a => a.lat !== null && a.lon !== null)
+      .map(a => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [a.lon!, a.lat!] },
+        properties: { volcano: a.volcano, area: a.area, vaac: a.vaac, dtg: a.dtg, raw_text: a.raw_text, isVolcanoPoint: true },
+      }))
+    return { type: 'FeatureCollection' as const, features: [...polyFeatures, ...volcanoPoints] as any[] }
+  }, [state.volcanicAsh])
+
+  // turf.polygon()에 넘길 항로 교차 판정용 — 확산 구역 Polygon만 추려서 준비(화산 위치
+  // 점은 교차 판정 대상이 아니므로 제외)
+  const volcanicAshPolys = useMemo(() => {
+    return volcanicAshData.features
+      .filter(f => (f.geometry as any).type === 'Polygon')
+      .map(f => { try { return turf.polygon((f.geometry as any).coordinates) } catch { return null } })
+      .filter((p): p is NonNullable<typeof p> => p !== null)
+  }, [volcanicAshData])
+
   // ── Typhoon track path ───────────────────────────────────────────
   const typhoonTrackData = useMemo(() => {
     const track = state.typhoonTrack
@@ -517,18 +633,30 @@ export default function MapView() {
     return { type: 'FeatureCollection' as const, features }
   }, [state.spatialFilter, state.matchedRoutesGeoJSON, routeData])
 
+  // 화산재 구역과 교차하는 항로 id — spatialFilter(단일 슬롯)와 별개로 항상 계산해서
+  // 태풍 등 다른 공간 필터가 이미 켜져 있어도 같이 "영향 항로"에 잡히게 함
+  const volcanicAshRouteIds = useMemo(() => {
+    if (!state.layers.volcanicAsh || volcanicAshPolys.length === 0) return []
+    const source = state.matchedRoutesGeoJSON ?? routeData
+    const ids: number[] = []
+    for (const f of source.features) {
+      const hit = volcanicAshPolys.some(poly => {
+        try { return turf.booleanIntersects(f as any, poly) } catch { return false }
+      })
+      if (hit) ids.push(f.properties?.id as number)
+    }
+    return ids
+  }, [state.layers.volcanicAsh, volcanicAshPolys, state.matchedRoutesGeoJSON, routeData])
+
   // 공간 필터(태풍 등)와 교차하는 항로 id만 표시용으로 표시 — 목록 자체는 건드리지 않음
   // (예전엔 여기서 allRoutes를 교차하는 항로로 통째로 갈아치워서, 영향 없는 항로를
   // 고르면 지도에 아무것도 안 뜨는 버그가 있었음)
   useEffect(() => {
-    if (!spatialRoutesData) {
-      dispatch({ type: 'SET_AFFECTED_ROUTES', payload: [] })
-      return
-    }
-    const ids = spatialRoutesData.features.map(f => f.properties?.id as number)
-    dispatch({ type: 'SET_AFFECTED_ROUTES', payload: ids })
+    const spatialIds = spatialRoutesData ? spatialRoutesData.features.map(f => f.properties?.id as number) : []
+    const merged = Array.from(new Set([...spatialIds, ...volcanicAshRouteIds]))
+    dispatch({ type: 'SET_AFFECTED_ROUTES', payload: merged })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spatialRoutesData])
+  }, [spatialRoutesData, volcanicAshRouteIds])
 
   // Clear route list when spatial filter is removed
   useEffect(() => {
@@ -622,6 +750,7 @@ export default function MapView() {
             'searched-routes-line', 'selected-route-line',
             'waypoints-circle-hit', 'all-airways-line-hit',
             ...(state.layers.traffic ? ['traffic-icon'] : []),
+            ...(state.layers.volcanicAsh ? ['volcanic-ash-fill', 'volcanic-ash-volcano-point'] : []),
           ]
         }
         onLoad={() => setMapLoaded(true)}
@@ -1025,6 +1154,88 @@ export default function MapView() {
           />
         </Source>
 
+        {/* ── 화산재 구역 (Tokyo VAAC) — OBS(현재) + 6/12/18h 예보 전부 표시 */}
+        {/* 시간대별로 색을 뚜렷하게 구분: OBS=빨강(가장 급함) → +6h 주황 → +12h/+18h
+            노랑 계열로, 신호등처럼 시간이 지날수록 옅은 색으로 이동 */}
+        <Source id="volcanic-ash" type="geojson" data={volcanicAshData}>
+          <Layer
+            id="volcanic-ash-fill"
+            type="fill"
+            filter={['==', '$type', 'Polygon']}
+            layout={{ visibility: state.layers.volcanicAsh ? 'visible' : 'none' }}
+            paint={{
+              'fill-color': ASH_STEP_COLOR,
+              'fill-opacity': ['interpolate', ['linear'], ['get', 'step_index'], 0, 0.38, 3, 0.2],
+            }}
+          />
+          <Layer
+            id="volcanic-ash-stroke"
+            type="line"
+            filter={['==', '$type', 'Polygon']}
+            layout={{ visibility: state.layers.volcanicAsh ? 'visible' : 'none' }}
+            paint={{
+              'line-color': ASH_STEP_COLOR,
+              'line-width': ['interpolate', ['linear'], ['get', 'step_index'], 0, 2.4, 3, 1.4],
+              'line-opacity': 0.95,
+              'line-dasharray': [3, 2],
+            }}
+          />
+          <Layer
+            id="volcanic-ash-label"
+            type="symbol"
+            filter={['==', '$type', 'Polygon']}
+            layout={{
+              visibility: state.layers.volcanicAsh ? 'visible' : 'none',
+              // 고도(FL) 정보를 라벨에 바로 붙여서 클릭/호버 없이 지도에서 한눈에 확인 가능
+              'text-field': [
+                'case',
+                ['!=', ['get', 'fl_min'], null],
+                ['concat',
+                  '🌋 ', ['get', 'volcano'], ' · ', ['get', 'step_label'],
+                  '\nFL', ['to-string', ['round', ['/', ['get', 'fl_min'], 100]]],
+                  '–FL', ['to-string', ['round', ['/', ['get', 'fl_max'], 100]]],
+                ],
+                ['concat', '🌋 ', ['get', 'volcano'], ' · ', ['get', 'step_label']],
+              ] as any,
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 10,
+              'text-line-height': 1.15,
+            }}
+            paint={{
+              'text-color': ASH_STEP_COLOR,
+              'text-halo-color': '#1c1917',
+              'text-halo-width': 1.4,
+            }}
+          />
+          {/* 화산 실제 위치(정상 좌표) — 확산 구역과 별개로 항상 표시 */}
+          <Layer
+            id="volcanic-ash-volcano-point"
+            type="circle"
+            filter={['==', '$type', 'Point']}
+            layout={{ visibility: state.layers.volcanicAsh ? 'visible' : 'none' }}
+            paint={{
+              'circle-radius': 6,
+              'circle-color': '#dc2626',
+              'circle-stroke-color': '#fff',
+              'circle-stroke-width': 2,
+            }}
+          />
+          <Layer
+            id="volcanic-ash-volcano-label"
+            type="symbol"
+            filter={['==', '$type', 'Point']}
+            layout={{
+              visibility: state.layers.volcanicAsh ? 'visible' : 'none',
+              'text-field': ['concat', '🌋 ', ['get', 'volcano']],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 11,
+              'text-offset': [0, 1.3],
+              'text-anchor': 'top',
+            }}
+            paint={{ 'text-color': '#fca5a5', 'text-halo-color': '#1c1917', 'text-halo-width': 1.4 }}
+          />
+        </Source>
+
         {/* ── Spatial filter polygon outline ───────────────────────── */}
         <Source id="spatial-filter" type="geojson" data={spatialFilterData}>
           <Layer
@@ -1185,7 +1396,7 @@ export default function MapView() {
       {/* Tooltip */}
       {tooltip && !inDrawMode && (
         <div
-          className="absolute bg-gray-900 border border-gray-700 text-white text-xs rounded-lg shadow-xl p-2.5 pointer-events-none z-10 max-w-xs"
+          className="absolute bg-gray-900 border border-gray-700 text-white text-xs rounded-lg shadow-xl p-2.5 pointer-events-none z-10 max-w-sm"
           style={{ left: tooltip.x + 14, top: tooltip.y - 8 }}
         >
           {tooltip.props.origin && tooltip.props.destination ? (
@@ -1221,6 +1432,31 @@ export default function MapView() {
                 {!!tooltip.props.on_ground && <div className="text-yellow-400">지상 (On Ground)</div>}
               </div>
             </div>
+          ) : tooltip.props.volcano ? (
+            // 화산재 구역 hover tooltip — 가볍게 요약만, 전문은 클릭해서 확인
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                {!!tooltip.props.step_label && (
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{
+                      backgroundColor: {
+                        OBS: '#ef4444', '+6HR': '#f97316', '+12HR': '#eab308', '+18HR': '#fde047',
+                      }[tooltip.props.step_label as string] ?? '#a8a29e',
+                    }}
+                  />
+                )}
+                <span className="font-bold text-sm text-white">🌋 {tooltip.props.volcano as string}</span>
+                {!!tooltip.props.step_label && <span className="text-gray-400 font-normal">· {tooltip.props.step_label as string}</span>}
+              </div>
+              <div className="text-gray-400 text-[11px] space-y-0.5">
+                <div>{tooltip.props.area as string} · {tooltip.props.vaac as string} VAAC</div>
+                {tooltip.props.fl_min != null && tooltip.props.fl_max != null && (
+                  <div>고도 FL{Math.round((tooltip.props.fl_min as number) / 100)} – FL{Math.round((tooltip.props.fl_max as number) / 100)}</div>
+                )}
+              </div>
+              <div className="text-gray-600 text-[10px] pt-0.5">클릭하면 전문 확인</div>
+            </div>
           ) : 'elevation' in tooltip.props ? (
             // Airport tooltip
             <div>
@@ -1231,6 +1467,58 @@ export default function MapView() {
             // Waypoint tooltip
             <div className="font-semibold text-gray-300">{tooltip.props.id as string}</div>
           ) : null}
+        </div>
+      )}
+
+      {/* 화산재 구역/화산 위치 클릭 팝업 — 호버 툴팁과 달리 고정돼서 전문을
+          스크롤해서 끝까지 읽을 수 있음. 닫기 버튼이나 다른 곳 클릭 시 닫힘 */}
+      {ashPopup && (
+        <div
+          className="absolute bg-gray-900 border border-gray-700 text-white text-xs rounded-lg shadow-2xl z-20 w-80 max-h-[70vh] flex flex-col"
+          style={{
+            left: ashPopupPos?.x ?? Math.min(ashPopup.x + 14, window.innerWidth - 340),
+            top: ashPopupPos?.y ?? Math.min(ashPopup.y - 8, window.innerHeight - 200),
+          }}
+        >
+          <div
+            onMouseDown={onAshPopupDragStart}
+            className="flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-700 shrink-0 cursor-move select-none"
+            title="드래그해서 위치 옮기기"
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              {!!ashPopup.props.step_label && (
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{
+                    backgroundColor: {
+                      OBS: '#ef4444', '+6HR': '#f97316', '+12HR': '#eab308', '+18HR': '#fde047',
+                    }[ashPopup.props.step_label as string] ?? '#a8a29e',
+                  }}
+                />
+              )}
+              <span className="font-bold text-sm text-white truncate">🌋 {ashPopup.props.volcano as string}</span>
+              {!!ashPopup.props.step_label && <span className="text-gray-400 font-normal shrink-0">· {ashPopup.props.step_label as string}</span>}
+            </div>
+            <button onClick={() => setAshPopup(null)} className="text-gray-500 hover:text-gray-200 shrink-0">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="px-3 py-2 overflow-y-auto space-y-2">
+            <div className="text-gray-400 text-[11px] space-y-0.5">
+              <div>{ashPopup.props.area as string} · {ashPopup.props.vaac as string} VAAC</div>
+              {!!ashPopup.props.step_time && <div>예보시각 {ashPopup.props.step_time as string}</div>}
+              {ashPopup.props.fl_min != null && ashPopup.props.fl_max != null && (
+                <div>고도 FL{Math.round((ashPopup.props.fl_min as number) / 100)} – FL{Math.round((ashPopup.props.fl_max as number) / 100)}
+                  <span className="text-gray-500"> ({(ashPopup.props.fl_min as number).toLocaleString()}–{(ashPopup.props.fl_max as number).toLocaleString()} ft)</span>
+                </div>
+              )}
+            </div>
+            {!!ashPopup.props.raw_text && (
+              <pre className="text-[10px] text-gray-300 bg-gray-950 border border-gray-800 rounded p-2 whitespace-pre-wrap break-words leading-relaxed font-mono">
+                {ashPopup.props.raw_text as string}
+              </pre>
+            )}
+          </div>
         </div>
       )}
 

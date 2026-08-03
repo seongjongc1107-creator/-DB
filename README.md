@@ -24,7 +24,7 @@ npm run dev
 ```
 backend/                FastAPI 서버
   app/data_loader.py      NAVDATA/Navblue_Route CSV 파싱 — 항로 geometry 계산의 핵심
-  app/routers/             API 라우터 (routes, navdata, typhoon, weather, curfew, traffic, search)
+  app/routers/             API 라우터 (routes, navdata, typhoon, weather, volcanic_ash, curfew, traffic, search)
   data/                    실데이터 (NAVDATA.csv, Navblue_Route.csv 등) — data/README.md 참고
 frontend/                React + Vite + MapLibre GL
   src/components/          지도, 사이드바, 각종 패널(항로 비교, 날씨, 태풍, 커퓨 등)
@@ -48,6 +48,12 @@ render.yaml, build.sh    Render 배포 설정
   — 폴리곤 좌표는 십진수·항공용 DMS 아무 형식이나 붙여넣기 가능(국가마다 다른 표기
   방식·구분자를 자동 인식)
 - 영향 항로는 목록 최상단에 정렬+뱃지 표시 (필터에 안 걸리는 항로도 그대로 선택 가능)
+- **화산재 구역**: 전 세계 9개 VAAC(도쿄·다윈·앵커리지·워싱턴·부에노스아이레스·웰링턴·
+  툴루즈·몬트리올·런던)를 호주 기상청(BOM) 집계 페이지 한 번의 요청으로 취합 —
+  다윈 VAAC 관할인 발리·인도네시아 화산도 포함. 관측(OBS)·+6h·+12h·+18h 예보 구간을
+  시간대별로 색상 구분(빨강→노랑) 표시, 화산 실제 위치(정상 좌표) 마커, 지도 라벨에
+  고도(FL) 범위 바로 표시, 클릭하면 VAA 전문이 뜨는 팝업(드래그로 위치 이동, 스크롤
+  가능). 화산재 구역과 겹치는 항로는 태풍/공간 필터와 마찬가지로 영향 항로로 자동 판정
 - FIR 경계, 공항 METAR/TAF 실시간 모니터링 + 특보 토스트(레이어에서 on/off, 태풍 구역
   겹치는 공항만 보기 필터 가능), 커퓨(야간 운항 제한) 표시
 - **기상 추이 패널**: 실측 METAR ↔ TAF 예보 비교 차트(풍속/시정/운고/기온·이슬점/QNH),

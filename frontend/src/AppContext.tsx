@@ -26,6 +26,7 @@ const initialState: AppState = {
     activeAirway: false,
     matchedRoutes: true,
     typhoon: true,
+    volcanicAsh: false,
     fir: false,
     curfew: true,
     traffic: false,
@@ -40,6 +41,8 @@ const initialState: AppState = {
   typhoonLoading: false,
   typhoonTrack: null,
   typhoonTrackStep: 0,
+  volcanicAsh: [],
+  volcanicAshLoading: false,
   searchResults: [],
   isLoading: false,
   highlightPoints: [],
@@ -151,18 +154,28 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, typhoonTrack: action.payload, typhoonTrackStep: 0 }
     case 'SET_TYPHOON_TRACK_STEP':
       return { ...state, typhoonTrackStep: action.payload }
+    case 'SET_VOLCANIC_ASH':
+      return { ...state, volcanicAsh: action.payload }
+    case 'SET_VOLCANIC_ASH_LOADING':
+      return { ...state, volcanicAshLoading: action.payload }
     case 'SET_FIR_GEOJSON':
       return { ...state, firGeoJSON: action.payload }
     case 'SET_ALT_ROUTE_MODE':
       return { ...state, altRouteMode: action.payload }
-    case 'ADD_HIGHLIGHT':
+    case 'ADD_HIGHLIGHT': {
+      // id가 같아도 위치가 다른 경우가 있어서(예: PIANO가 미국·대만에 둘 다 있음)
+      // 좌표까지 같이 봐야 서로 다른 검색 결과로 구분됨 — 안 그러면 두 번째 걸
+      // 고를 때 첫 번째가 조용히 밀려남
+      const isSame = (p: typeof action.payload) =>
+        p.id === action.payload.id && p.lat === action.payload.lat && p.lon === action.payload.lon
       return {
         ...state,
         highlightPoints: [
-          ...state.highlightPoints.filter(p => p.id !== action.payload.id),
+          ...state.highlightPoints.filter(p => !isSame(p)),
           action.payload,
         ],
       }
+    }
     case 'REMOVE_HIGHLIGHT':
       return { ...state, highlightPoints: state.highlightPoints.filter(p => p.id !== action.payload) }
     case 'CLEAR_HIGHLIGHTS':
