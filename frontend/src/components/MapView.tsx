@@ -174,15 +174,23 @@ export default function MapView() {
     }).catch(() => {})
   }, [state.layers.typhoon, state.typhoons.length, state.typhoonTrack, dispatch])
 
-  // 화산재 구역 레이어를 처음 켤 때 도쿄 VAAC 활성 권고를 불러옴
+  // 화산재 구역 레이어 — 켜져 있는 동안 10분마다 재조회. 종료된 화산(NO FURTHER
+  // ADVISORIES)은 백엔드에서 목록에서 빠지므로, 여기서도 매번 전체를 덮어써서
+  // 화면에서 같이 사라지게 함(꺼진 걸 다시 켤 때도 최초 1회 즉시 조회).
   useEffect(() => {
-    if (!state.layers.volcanicAsh || state.volcanicAsh.length > 0) return
-    dispatch({ type: 'SET_VOLCANIC_ASH_LOADING', payload: true })
-    api.volcanicAsh.active()
-      .then(data => { if (data.advisories) dispatch({ type: 'SET_VOLCANIC_ASH', payload: data.advisories }) })
-      .catch(() => {})
-      .finally(() => dispatch({ type: 'SET_VOLCANIC_ASH_LOADING', payload: false }))
-  }, [state.layers.volcanicAsh, state.volcanicAsh.length, dispatch])
+    if (!state.layers.volcanicAsh) return
+    let cancelled = false
+    function fetchAsh() {
+      dispatch({ type: 'SET_VOLCANIC_ASH_LOADING', payload: true })
+      api.volcanicAsh.active()
+        .then(data => { if (!cancelled && data.advisories) dispatch({ type: 'SET_VOLCANIC_ASH', payload: data.advisories }) })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) dispatch({ type: 'SET_VOLCANIC_ASH_LOADING', payload: false }) })
+    }
+    fetchAsh()
+    const id = setInterval(fetchAsh, 10 * 60_000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [state.layers.volcanicAsh, dispatch])
 
   // Convert traffic to GeoJSON
   const trafficGeoJSON = useMemo(() => ({
@@ -320,7 +328,19 @@ export default function MapView() {
       }
     }
     setContextMenu({ x: e.point.x, y: e.point.y, list, expanded: null })
+    setCtxNumberFilter('')
   }, [state.spatialMode])
+
+  // 겹친 항로 목록 안에서도 사이드바와 동일하게 항로 번호로 추가 필터 가능
+  // (공백으로 여러 개 나열하면 OR 매칭, 예: "27 96 11")
+  const [ctxNumberFilter, setCtxNumberFilter] = useState('')
+  const contextMenuList = useMemo(() => {
+    if (!contextMenu) return []
+    const numbers = ctxNumberFilter.trim().split(/\s+/).filter(Boolean).map(Number).filter(n => !isNaN(n))
+    if (numbers.length === 0) return contextMenu.list
+    const numberSet = new Set(numbers)
+    return contextMenu.list.filter(p => numberSet.has(p.number as number))
+  }, [contextMenu, ctxNumberFilter])
 
   // ESC로 우클릭 메뉴 닫기
   useEffect(() => {
@@ -1566,10 +1586,34 @@ export default function MapView() {
           ) : (
             <>
               <div className="px-2.5 py-1.5 border-b border-gray-700 text-gray-400 shrink-0">
-                겹친 항로 {contextMenu.list.length}개
+                겹친 항로 {contextMenuList.length}개{contextMenuList.length !== contextMenu.list.length ? ` / ${contextMenu.list.length}개` : ''}
               </div>
+              {contextMenu.list.length > 1 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-700 shrink-0">
+                  <span className="text-gray-600 text-xs shrink-0">#</span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="항로 번호로 필터 (예: 27 96 11)"
+                    value={ctxNumberFilter}
+                    onChange={e => setCtxNumberFilter(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    className="flex-1 bg-gray-800 border border-gray-700 text-white text-xs rounded px-2 py-1 outline-none focus:border-blue-500 placeholder-gray-600"
+                  />
+                  {ctxNumberFilter && (
+                    <button
+                      onClick={() => setCtxNumberFilter('')}
+                      className="text-gray-500 hover:text-gray-300 text-xs shrink-0"
+                    >
+                      지우기
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="overflow-y-auto">
-                {contextMenu.list.map((p, i) => (
+                {contextMenuList.length === 0 ? (
+                  <div className="text-xs text-gray-600 text-center py-4">일치하는 항로 없음</div>
+                ) : contextMenuList.map((p, i) => (
                   <button
                     key={i}
                     onClick={() => { setContextMenu({ ...contextMenu, expanded: p }); dispatch({ type: 'SET_HOVERED_ROUTE', payload: p.id as number }) }}

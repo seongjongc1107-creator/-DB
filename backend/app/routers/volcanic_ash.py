@@ -9,6 +9,7 @@ Washington/Wellington)의 최근 7일 권고 전문이 모두 올라옴 — 요�
 
 import html
 import re
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter
@@ -149,6 +150,22 @@ def _extract_step_dtg(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+FULL_DTG_RE = re.compile(r"(\d{8}/\d{4}Z)")
+
+
+def _parse_next_advisory_dtg(nxt_text: str) -> datetime | None:
+    """NXT ADVISORY 필드는 "20260803/0000Z"처럼 절대시각 그대로 오거나
+    "WILL BE ISSUED BY 20260804/0300Z"/"NO LATER THAN ..." 처럼 문구가 붙기도 함 —
+    어느 위치에 있든 DTG 패턴만 뽑아냄."""
+    m = FULL_DTG_RE.search(nxt_text)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%Y%m%d/%H%MZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
 def _parse_psn(psn: str) -> tuple[float, float] | None:
     tokens = DMS_TOKEN_RE.findall(psn)
     values = [v for t in tokens if (v := _dms_token_to_value(t)) is not None]
@@ -196,7 +213,11 @@ def _parse_advisory(vaac_name: str, chunk: str) -> dict | None:
         return None  # 헤더/타이틀 조각(첫 "Received" 이전) 등 실제 권고가 아님
 
     if "NO FURTHER ADVISORIES" in fields.get("nxt", ""):
-        return {"terminal": True}
+        return {
+            "terminal": True,
+            "volcano": fields.get("volcano", "").split()[0] if fields.get("volcano") else "UNKNOWN",
+            "dtg": fields.get("dtg", ""),
+        }
 
     end = chunk.find("=")
     raw_text = _format_raw_text(chunk[: end + 1] if end != -1 else chunk)
@@ -221,6 +242,7 @@ def _parse_advisory(vaac_name: str, chunk: str) -> dict | None:
         "vaac": fields.get("vaac", "").strip() or vaac_name.upper(),
         "steps": steps,
         "raw_text": raw_text,
+        "_next_advisory_utc": _parse_next_advisory_dtg(fields.get("nxt", "")),
     }
 
 
@@ -245,14 +267,36 @@ async def get_active_volcanic_ash():
         chunks = ADVISORY_SPLIT_RE.split(content)
         for chunk in chunks:
             parsed = _parse_advisory(vaac_name, chunk)
-            if not parsed or parsed.get("terminal"):
+            if not parsed:
                 continue
             key = parsed["volcano"]
             prev = latest_by_volcano.get(key)
+            if parsed.get("terminal"):
+                # "NO FURTHER ADVISORIES"가 현재 들고 있는 마지막 권고보다 같거나
+                # 최신이면 화산재 구역이 이미 종료된 것 — 목록에서 제거해서 지도에
+                # 안 남게 함. (예전엔 이 종료 신호를 그냥 건너뛰어서 마지막 권고가
+                # 영원히 표시되는 버그가 있었음)
+                if prev is None or parsed["dtg"] >= prev["dtg"]:
+                    latest_by_volcano.pop(key, None)
+                continue
             if prev is None or parsed["dtg"] > prev["dtg"]:
                 latest_by_volcano[key] = parsed
 
-    advisories = list(latest_by_volcano.values())
+    # "NXT ADVISORY"로 예고한 다음 권고 예정 시각을 이미 한참(유예 3시간) 넘겼는데도
+    # 새 권고가 안 올라왔으면 — VAAC가 "NO FURTHER ADVISORIES" 같은 명시적 종료
+    # 신호 없이 그냥 갱신을 멈춘 경우 — 낡은 예보를 현재 유효한 것처럼 계속 띄우게
+    # 됨(사쿠라지마에서 실제로 발생: 다음 권고 예정을 26시간 넘게 지나서도 8/2
+    # 권고가 그대로 남아있었음). 다음 권고 예정 시각을 못 읽은 경우엔 판단 근거가
+    # 없으니 안전하게 그대로 유지.
+    now = datetime.now(timezone.utc)
+    GRACE = timedelta(hours=3)
+    advisories = []
+    for adv in latest_by_volcano.values():
+        next_due = adv.pop("_next_advisory_utc", None)
+        if next_due is not None and now > next_due + GRACE:
+            continue
+        advisories.append(adv)
+
     return {
         "source": "bom_aggregator",
         "count": len(advisories),
