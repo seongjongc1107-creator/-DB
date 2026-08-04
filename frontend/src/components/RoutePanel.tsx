@@ -218,9 +218,10 @@ export default function RoutePanel() {
   }
 
   function exportCsv() {
-    const header = ['Origin', 'Destination', 'Number', 'Route', 'Distance (NM)', 'Aircraft']
+    const header = ['Origin', 'Destination', 'Number', 'Affected', 'Route', 'Distance (NM)', 'Aircraft']
     const rows = routes.map(r => [
       r.origin, r.destination, r.number,
+      affectedIdSet.has(r.id) ? 'Y' : 'N',
       `"${r.route.replace(/"/g, '""')}"`,
       r.distance, r.aircraft ?? '',
     ])
