@@ -1,4 +1,5 @@
 import type { MetarData, WeatherConfig, WeatherLevel, WeatherThresholds } from '../types'
+import { AIRPORT_MINIMA_SEED } from './airportMinimaSeed'
 
 export interface TextSegment {
   text: string
@@ -111,7 +112,7 @@ export function saveConfig(config: WeatherConfig) {
 }
 
 export function getThresholds(config: WeatherConfig, icao: string): WeatherThresholds {
-  return config.airports[icao] ?? config.defaults
+  return config.airports[icao] ?? AIRPORT_MINIMA_SEED[icao] ?? config.defaults
 }
 
 /**

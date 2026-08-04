@@ -2,7 +2,12 @@ import { useState, useMemo } from 'react'
 import { X, Search, SlidersHorizontal, Settings2, ChevronDown, ChevronUp } from 'lucide-react'
 import { useApp } from '../AppContext'
 import { getThresholds, DEFAULT_THRESHOLDS } from '../lib/weatherClassify'
+import { AIRPORT_MINIMA_SEED } from '../lib/airportMinimaSeed'
 import type { WeatherThresholds } from '../types'
+
+type Source = 'custom' | 'seed' | 'default'
+const SOURCE_RANK: Record<Source, number> = { custom: 0, seed: 1, default: 2 }
+const SOURCE_LABEL: Record<Source, string> = { custom: '개별설정', seed: '실측 데이터', default: '기본값' }
 
 const COL_LABELS = ['시정 주의', '시정 심각', '운고 주의', '운고 심각', '돌풍 주의', '돌풍 심각']
 const COL_UNITS  = ['m', 'm', 'ft', 'ft', 'kt', 'kt']
@@ -23,7 +28,7 @@ type SortKey = 'icao' | 'status'
 export default function AirportMinimumsTable({ onClose }: { onClose: () => void }) {
   const { state, dispatch } = useApp()
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState<'all' | 'configured' | 'default'>('all')
+  const [filter, setFilter] = useState<'all' | Source>('all')
   const [sortKey, setSortKey] = useState<SortKey>('icao')
   const [sortAsc, setSortAsc] = useState(true)
   const [defaultsOpen, setDefaultsOpen] = useState(false)
@@ -39,7 +44,7 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
   const rows = useMemo(() => {
     let list = allIcaos.map(icao => ({
       icao,
-      configured: Boolean(state.weatherConfig.airports[icao]),
+      source: (state.weatherConfig.airports[icao] ? 'custom' : AIRPORT_MINIMA_SEED[icao] ? 'seed' : 'default') as Source,
       thresholds: getThresholds(state.weatherConfig, icao),
     }))
 
@@ -47,13 +52,12 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
       const q = query.toUpperCase()
       list = list.filter(r => r.icao.includes(q))
     }
-    if (filter === 'configured') list = list.filter(r => r.configured)
-    if (filter === 'default')    list = list.filter(r => !r.configured)
+    if (filter !== 'all') list = list.filter(r => r.source === filter)
 
     list.sort((a, b) => {
       let cmp = 0
       if (sortKey === 'icao')   cmp = a.icao.localeCompare(b.icao)
-      if (sortKey === 'status') cmp = Number(b.configured) - Number(a.configured)
+      if (sortKey === 'status') cmp = SOURCE_RANK[a.source] - SOURCE_RANK[b.source]
       return sortAsc ? cmp : -cmp
     })
 
@@ -65,7 +69,8 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
     else { setSortKey(key); setSortAsc(true) }
   }
 
-  const configuredCount = allIcaos.filter(i => state.weatherConfig.airports[i]).length
+  const customCount = allIcaos.filter(i => state.weatherConfig.airports[i]).length
+  const seedCount = allIcaos.filter(i => !state.weatherConfig.airports[i] && AIRPORT_MINIMA_SEED[i]).length
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm pt-10 pb-10 overflow-y-auto">
@@ -79,14 +84,16 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
               공항 기상 최저치 관리
             </h2>
             <p className="text-xs text-gray-500 mt-1">
-              공항마다 기상 최저치(DH/MDA, RVR 등)가 다릅니다. 각 공항의 실제 운항 최저치에 맞게 개별 설정하세요.
+              공항마다 기상 최저치(DH/MDA, RVR 등)가 다릅니다. 96개 공항은 실제 접근최저치 데이터로 자동 반영되어 있고, 필요하면 개별로 덮어쓸 수 있습니다.
             </p>
             <div className="flex items-center gap-2 mt-2 text-xs">
               <span className="text-gray-400">전체 {allIcaos.length}개</span>
               <span className="text-gray-600">·</span>
-              <span className="text-blue-400 font-semibold">개별 설정 {configuredCount}개</span>
+              <span className="text-blue-400 font-semibold">개별 설정 {customCount}개</span>
               <span className="text-gray-600">·</span>
-              <span className="text-gray-500">미설정 {allIcaos.length - configuredCount}개</span>
+              <span className="text-teal-400 font-semibold">실측 데이터 {seedCount}개</span>
+              <span className="text-gray-600">·</span>
+              <span className="text-gray-500">기본값 {allIcaos.length - customCount - seedCount}개</span>
             </div>
           </div>
           <button onClick={onClose} className="text-gray-600 hover:text-gray-300 transition-colors mt-0.5">
@@ -107,7 +114,7 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
             />
           </div>
           <div className="flex gap-1">
-            {(['all', 'configured', 'default'] as const).map(f => (
+            {(['all', 'custom', 'seed', 'default'] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -117,7 +124,7 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
                     : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
-                {f === 'all' ? '전체' : f === 'configured' ? '개별설정' : '미설정'}
+                {f === 'all' ? '전체' : SOURCE_LABEL[f]}
               </button>
             ))}
           </div>
@@ -168,23 +175,27 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
                   >
                     <td className="px-4 py-2.5 font-mono font-bold text-white">{row.icao}</td>
                     {cells.map((v, i) => {
-                      const isChanged = row.configured && v !== def[i]
+                      const isChanged = row.source !== 'default' && v !== def[i]
                       return (
                         <td key={i} className="px-3 py-2.5 text-right">
-                          <span className={`font-mono ${isChanged ? 'text-blue-300 font-semibold' : 'text-gray-400'}`}>
+                          <span className={`font-mono ${isChanged ? (row.source === 'custom' ? 'text-blue-300 font-semibold' : 'text-teal-300 font-semibold') : 'text-gray-400'}`}>
                             {v.toLocaleString()}
                           </span>
                         </td>
                       )
                     })}
                     <td className="px-3 py-2.5 text-center">
-                      {row.configured ? (
+                      {row.source === 'custom' ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-900/60 border border-blue-700 text-blue-300">
                           개별설정
                         </span>
+                      ) : row.source === 'seed' ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-900/60 border border-teal-700 text-teal-300">
+                          실측 데이터
+                        </span>
                       ) : (
                         <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-800 border border-gray-700 text-gray-500">
-                          미설정
+                          기본값
                         </span>
                       )}
                     </td>
@@ -218,9 +229,9 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
             className="w-full flex items-center gap-2 px-6 py-3 text-xs text-gray-600 hover:text-gray-400 transition-colors"
           >
             {defaultsOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            <span>미설정 공항에 적용되는 임시 기본값</span>
+            <span>실측 데이터도 없는 공항에 적용되는 기본값</span>
             <span className="ml-auto text-gray-700 text-[10px]">
-              개별 최저치가 없는 공항에만 적용됩니다 — 실제 운항 최저치와 다를 수 있습니다
+              개별 설정도, 실측 최저치 데이터도 없는 공항에만 적용됩니다 — 실제 운항 최저치와 다를 수 있습니다
             </span>
           </button>
           {defaultsOpen && (
