@@ -1005,14 +1005,24 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
             <MonthlyCharts months={monthlyData} />
           )}
 
-          {/* Empty states */}
+          {/* Empty states — "아직 조회 안 함"과 "조회했는데 결과 0건"을 구분해서
+              보여줌. 안 그러면 조회 버튼을 눌러도 초기 안내문구가 그대로 떠서
+              마치 아무 반응이 없는 것처럼 보임 */}
           {!loading && chartData.length === 0 && (mode === 'realtime' || histView === 'raw') && (
             <p className="text-xs text-gray-500 text-center py-8">
-              {mode === 'history' ? '기간을 선택하고 [조회]를 눌러주세요.' : 'METAR 데이터가 없습니다.'}
+              {mode === 'history'
+                ? (histPoints === null
+                    ? '기간을 선택하고 [조회]를 눌러주세요.'
+                    : '선택한 기간에 수집된 데이터가 없습니다 — [데이터 수집]을 먼저 눌러주세요.')
+                : 'METAR 데이터가 없습니다.'}
             </p>
           )}
           {!loading && mode === 'history' && histView === 'monthly' && (!monthlyData || monthlyData.length === 0) && (
-            <p className="text-xs text-gray-500 text-center py-8">기간을 선택하고 [조회]를 눌러주세요.</p>
+            <p className="text-xs text-gray-500 text-center py-8">
+              {monthlyData === null
+                ? '기간을 선택하고 [조회]를 눌러주세요.'
+                : '선택한 기간에 수집된 데이터가 없습니다 — [데이터 수집]을 먼저 눌러주세요.'}
+            </p>
           )}
         </div>
 

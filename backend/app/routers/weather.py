@@ -688,7 +688,7 @@ async def history_trend(
         rows = rows[::step]
 
     points = [{
-        "obs_time": r.obs_time.__class__.__name__ + "_REPLACE",
+        "obs_time": r.obs_time.isoformat() + "Z",
         "wdir": r.wdir,
         "wspd": r.wspd,
         "wgst": r.wgst,
