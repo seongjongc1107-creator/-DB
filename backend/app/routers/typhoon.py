@@ -32,6 +32,19 @@ MOCK_TRACK = [
 ]
 
 
+def _wind_to_intensity_alert(wind_kt: float | None, fallback: str) -> str:
+    """GDACS RSS의 alertlevel은 인명·재산 피해 영향도 지표(먼 바다의 강한 태풍도
+    "Green"으로 나올 수 있음)라서 태풍 강도 표시(라벨/색상)에 쓰면 안 됨 —
+    실측 풍속으로 강도를 다시 판정. 풍속을 못 읽은 경우에만 GDACS 값으로 대체."""
+    if wind_kt is None:
+        return fallback
+    if wind_kt >= 96:
+        return "Red"
+    if wind_kt >= 34:
+        return "Orange"
+    return "Green"
+
+
 def _wind_to_radius(wind_kt: float) -> int:
     if wind_kt >= 96:
         return 260
@@ -43,11 +56,17 @@ def _wind_to_radius(wind_kt: float) -> int:
 
 
 def _intensity_to_alert(label: str) -> tuple[str, float]:
-    """JTWC 강도 레이블(TD/TS/TY/STY) → (alertlevel, wind_kt)"""
+    """GDACS Line_Line polygonlabel → (alertlevel, wind_kt).
+
+    실측 GDACS geometry API 응답을 보면 라벨은 JTWC 서열(TD/TS/STS/TY/STY/VSTY)이
+    아니라 NHC/Saffir-Simpson 계열의 TD/TS/HU(/MH)를 씀 — 특히 HU(허리케인·태풍,
+    64kt 이상)를 인식 못 해서 그냥 기본값(TD 취급)으로 떨어지는 바람에 태풍이
+    한창 강할 때도 반경이 제일 작은 단계로 표시되던 버그가 있었음.
+    """
     u = label.upper()
-    if u in ("STY", "VSTY"):
+    if u in ("STY", "VSTY", "MH"):
         return "Red", 120.0
-    if u == "TY":
+    if u in ("TY", "HU"):
         return "Orange", 80.0
     if u in ("TS", "STS"):
         return "Orange", 45.0
@@ -90,7 +109,7 @@ def _parse_item(item: ET.Element) -> dict | None:
         return None
 
     name = item.findtext(f"{{{GDACS_NS}}}eventname") or item.findtext("title") or "Unknown"
-    alert = item.findtext(f"{{{GDACS_NS}}}alertlevel") or "Green"
+    gdacs_alert = item.findtext(f"{{{GDACS_NS}}}alertlevel") or "Green"
 
     # georss:point "lat lon" 형식 우선, 없으면 geo:lat/geo:long
     lat: float | None = None
@@ -128,6 +147,7 @@ def _parse_item(item: ET.Element) -> dict | None:
         except (ValueError, IndexError):
             pass
 
+    alert = _wind_to_intensity_alert(wind_kt, gdacs_alert)
     radius_nm = _wind_to_radius(wind_kt) if wind_kt else DEFAULT_RADIUS.get(alert, 150)
     event_id = item.findtext(f"{{{GDACS_NS}}}eventid") or f"{lat:.2f}_{lon:.2f}"
 
@@ -263,6 +283,9 @@ def get_mock_track():
             "wind_kt": p["wind_kt"],
             "alert": p["alert"],
             "radius_nm": radius_nm,
+            # 실제 트랙처럼 앞부분(0~3)은 실측, 뒷부분은 예보로 표시해서
+            # "현재 시점부터 예보 재생" 기능을 모의 태풍으로도 테스트할 수 있게 함
+            "is_forecast": p["step"] > 3,
             "color": ALERT_COLOR[p["alert"]],
         })
     return {"name": "MOCK-CHAN (가상)", "count": len(track), "track": track}

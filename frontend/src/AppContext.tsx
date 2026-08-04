@@ -150,8 +150,20 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, typhoons: action.payload }
     case 'SET_TYPHOON_LOADING':
       return { ...state, typhoonLoading: action.payload }
-    case 'SET_TYPHOON_TRACK':
-      return { ...state, typhoonTrack: action.payload, typhoonTrackStep: 0 }
+    case 'SET_TYPHOON_TRACK': {
+      const track = action.payload
+      // 트랙 로드 시 맨 처음(수일 전 과거)이 아니라 "현재 시점"부터 보여줌 —
+      // is_forecast가 처음으로 true가 되는 지점 바로 앞(=가장 최근 실측)을 현재로 봄.
+      // 전부 과거 실측이면(태풍이 이미 소멸) 마지막 스텝을, 전부 예보면 0을 사용.
+      let startStep = 0
+      if (track && track.length > 0) {
+        const firstForecastIdx = track.findIndex(p => p.is_forecast)
+        startStep = firstForecastIdx === -1
+          ? track.length - 1
+          : Math.max(0, firstForecastIdx - 1)
+      }
+      return { ...state, typhoonTrack: track, typhoonTrackStep: startStep }
+    }
     case 'SET_TYPHOON_TRACK_STEP':
       return { ...state, typhoonTrackStep: action.payload }
     case 'SET_VOLCANIC_ASH':

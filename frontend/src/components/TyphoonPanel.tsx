@@ -5,22 +5,38 @@ import { api } from '../api/client'
 import { useApp } from '../AppContext'
 import type { Typhoon, TyphoonTrackPoint } from '../types'
 
-const ALERT_LABEL: Record<string, string> = {
-  Green: '열대저압부',
-  Orange: '태풍',
-  Red: '강태풍',
+// alert(Green/Orange/Red)는 반경 계산용 3단계라 TS(열대폭풍)와 TY(태풍)가 둘 다
+// Orange로 묶여서 그 시점 실제 강도를 못 보여줌 — 표시용 라벨/색상은 풍속(wind_kt)
+// 기준 4단계로 따로 판정. 기준은 backend _wind_to_radius와 동일(34/64/96kt).
+type WindTier = 'td' | 'ts' | 'ty' | 'sty'
+
+function windTier(wind_kt: number | null): WindTier {
+  if (wind_kt === null) return 'td'
+  if (wind_kt >= 96) return 'sty'
+  if (wind_kt >= 64) return 'ty'
+  if (wind_kt >= 34) return 'ts'
+  return 'td'
 }
 
-const ALERT_CLASS: Record<string, string> = {
-  Green: 'text-yellow-400 bg-yellow-400/10 border-yellow-600',
-  Orange: 'text-orange-400 bg-orange-400/10 border-orange-600',
-  Red: 'text-red-400 bg-red-400/10 border-red-600',
+const TIER_LABEL: Record<WindTier, string> = {
+  td: '열대저압부',
+  ts: '열대폭풍',
+  ty: '태풍',
+  sty: '매우 강한 태풍',
 }
 
-const SLIDER_TRACK_COLOR: Record<string, string> = {
-  Green: '#FCD34D',
-  Orange: '#F97316',
-  Red: '#EF4444',
+const TIER_CLASS: Record<WindTier, string> = {
+  td: 'text-yellow-400 bg-yellow-400/10 border-yellow-600',
+  ts: 'text-amber-400 bg-amber-400/10 border-amber-600',
+  ty: 'text-orange-400 bg-orange-400/10 border-orange-600',
+  sty: 'text-red-400 bg-red-400/10 border-red-600',
+}
+
+const TIER_COLOR: Record<WindTier, string> = {
+  td: '#FCD34D',
+  ts: '#FBBF24',
+  ty: '#F97316',
+  sty: '#EF4444',
 }
 
 function makeFilter(t: Typhoon) {
@@ -45,13 +61,17 @@ export default function TyphoonPanel() {
     dispatch({ type: 'SET_SPATIAL_FILTER', payload: makeFilter(pt) })
   }, [state.typhoonTrack, state.typhoonTrackStep]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Play: bump step every 800ms
+  // Play: bump step every 800ms — 끝(예보 마지막 시점)에 도달하면 처음(과거)으로
+  // 되돌아가지 않고 그냥 멈춤. 예보를 끝까지 다 봤다는 뜻이라 루프 돌 이유가 없음.
   useEffect(() => {
     if (!playing || !state.typhoonTrack) return
     const id = setInterval(() => {
       const max = state.typhoonTrack!.length - 1
-      const next = state.typhoonTrackStep < max ? state.typhoonTrackStep + 1 : 0
-      dispatch({ type: 'SET_TYPHOON_TRACK_STEP', payload: next })
+      if (state.typhoonTrackStep >= max) {
+        setPlaying(false)
+        return
+      }
+      dispatch({ type: 'SET_TYPHOON_TRACK_STEP', payload: state.typhoonTrackStep + 1 })
     }, 800)
     return () => clearInterval(id)
   }, [playing, state.typhoonTrackStep, state.typhoonTrack]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -207,8 +227,9 @@ function TrackPlayer({
   onTogglePlay: () => void
 }) {
   const pt = track[step]
-  const alertCls = ALERT_CLASS[pt.alert] ?? ALERT_CLASS.Orange
-  const sliderColor = SLIDER_TRACK_COLOR[pt.alert] ?? '#F97316'
+  const tier = windTier(pt.wind_kt)
+  const alertCls = TIER_CLASS[tier]
+  const sliderColor = TIER_COLOR[tier]
   const pct = (step / (track.length - 1)) * 100
 
   return (
@@ -219,7 +240,7 @@ function TrackPlayer({
           <Wind size={13} />
           {pt.name}
         </div>
-        <span className="text-[10px] opacity-75">{ALERT_LABEL[pt.alert]}</span>
+        <span className="text-[10px] opacity-75">{TIER_LABEL[tier]}</span>
       </div>
 
       {/* Current step info */}
@@ -235,8 +256,10 @@ function TrackPlayer({
           {pt.lat.toFixed(1)}°N {pt.lon.toFixed(1)}°E
         </div>
         <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-          <span>풍속 {pt.wind_kt} kt</span>
-          <span>반경 {pt.radius_nm} NM</span>
+          {/* GDACS가 트랙 시점별로는 TD/TS/HU 등급 라벨만 주고 실측 풍속을 안 줘서
+              (등급별 대표값), 여기 풍속/반경/기압 전부 추정치임을 명시 */}
+          <span>풍속 {pt.wind_kt} kt<span className="opacity-50 text-[9px] ml-0.5">(추정)</span></span>
+          <span>반경 {pt.radius_nm} NM<span className="opacity-50 text-[9px] ml-0.5">(추정)</span></span>
           <span>기압 {pt.pressure_hpa != null ? `${pt.pressure_hpa} hPa` : 'N/A'}
             {pt.pressure_hpa != null && <span className="opacity-50 text-[9px] ml-0.5">(추정)</span>}
           </span>
@@ -279,7 +302,7 @@ function TrackPlayer({
             style={{
               width: i === step ? 8 : 6,
               height: i === step ? 8 : 6,
-              backgroundColor: i === step ? '#fff' : SLIDER_TRACK_COLOR[p.alert],
+              backgroundColor: i === step ? '#fff' : TIER_COLOR[windTier(p.wind_kt)],
             }}
           />
         ))}
@@ -305,7 +328,7 @@ function TyphoonCard({ typhoon: t, trackLoading, onApply, onTrack }: {
   onApply: () => void
   onTrack: () => void
 }) {
-  const alertCls = ALERT_CLASS[t.alert] ?? ALERT_CLASS.Orange
+  const alertCls = TIER_CLASS[windTier(t.wind_kt)]
   return (
     <div className={`rounded-lg border p-2.5 space-y-2 ${alertCls}`}>
       <div className="flex items-center justify-between">
@@ -313,7 +336,7 @@ function TyphoonCard({ typhoon: t, trackLoading, onApply, onTrack }: {
           <Wind size={13} />
           {t.name}
         </div>
-        <span className="text-[10px] opacity-80">{ALERT_LABEL[t.alert] ?? t.alert}</span>
+        <span className="text-[10px] opacity-80">{TIER_LABEL[windTier(t.wind_kt)]}</span>
       </div>
       <div className="text-[11px] opacity-70 font-mono space-y-0.5">
         <div className="flex items-center gap-1">
@@ -321,8 +344,9 @@ function TyphoonCard({ typhoon: t, trackLoading, onApply, onTrack }: {
           {t.lat.toFixed(2)}°N {t.lon.toFixed(2)}°E
         </div>
         <div className="flex gap-3">
+          {/* 풍속은 GDACS 실측치, 반경은 풍속 구간(34/64/96kt)별 대표값이라 추정치 */}
           {t.wind_kt !== null && <span>최대풍속 {t.wind_kt} kt</span>}
-          <span>경보반경 {t.radius_nm} NM</span>
+          <span>경보반경 {t.radius_nm} NM<span className="opacity-50 text-[9px] ml-0.5">(추정)</span></span>
         </div>
       </div>
       <div className="flex gap-1.5">
