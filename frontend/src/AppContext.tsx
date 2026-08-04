@@ -215,8 +215,16 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, allRoutes: [...state.allRoutes, ...newRoutes] }
     }
     case 'SET_WEATHER_DATA': {
+      // 응답 배열엔 공항당 최근 몇 시간치 관측이 섞여서 옴(시간순 보장 안 됨) —
+      // 관측시각(obs_time)이 기존에 저장된 것보다 최신일 때만 덮어써서, 배열
+      // 안에서 더 오래된 항목이 뒤에 나온다는 이유로 최신 관측을 밀어내는 걸 방지.
       const updated = { ...state.weatherData }
-      for (const d of action.payload) updated[d.icao] = d
+      for (const d of action.payload) {
+        const prev = updated[d.icao]
+        if (!prev || !prev.obs_time || !d.obs_time || d.obs_time >= prev.obs_time) {
+          updated[d.icao] = d
+        }
+      }
       return { ...state, weatherData: updated }
     }
     case 'ADD_WEATHER_ALERTS':

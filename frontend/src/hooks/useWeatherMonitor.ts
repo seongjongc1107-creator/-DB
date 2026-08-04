@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { api } from '../api/client'
 import { useApp } from '../AppContext'
-import { classifyLevel, getThresholds } from '../lib/weatherClassify'
+import { explainLevel, getThresholds } from '../lib/weatherClassify'
 import type { WeatherAlert, WeatherLevel } from '../types'
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000  // 5분 (SPECI 대응)
@@ -12,12 +12,10 @@ const LEVEL_LABEL: Record<WeatherLevel, string> = {
   3: '심각',
 }
 
-function makeAlertMessage(icao: string, level: WeatherLevel, cat: string, gust: number | null, wx: string[]): string {
-  const displayCat = cat === 'VFR' ? '' : ` — ${cat}`
-  const parts: string[] = [`[${LEVEL_LABEL[level]}] ${icao}${displayCat}`]
-  if (wx.length > 0) parts.push(wx.join(' '))
-  if (gust) parts.push(`돌풍 ${gust}kt`)
-  return parts.join(' / ')
+// MVFR/IFR 같은 일반 카테고리가 아니라, 실제로 이 레벨을 유발한 METAR 원문
+// 조각을 그대로 근거로 보여줌 (예: "BKN008", "G35KT", "TSRA")
+function makeAlertMessage(icao: string, level: WeatherLevel, reason: string): string {
+  return reason ? `[${LEVEL_LABEL[level]}] ${icao} — ${reason}` : `[${LEVEL_LABEL[level]}] ${icao}`
 }
 
 export function useWeatherMonitor(icaos: string[]) {
@@ -34,9 +32,12 @@ export function useWeatherMonitor(icaos: string[]) {
 
         const newAlerts: WeatherAlert[] = []
         for (const d of res.data) {
-          // Classify using user-defined thresholds for this airport
+          // Classify using user-defined thresholds for this airport — combines
+          // both classification paths (structured fields + raw-token parse)
+          // the same way MapView/AirportPanel do, so the toast never disagrees
+          // with what's shown on the map/panel for the same METAR.
           const thresholds = getThresholds(state.weatherConfig, d.icao)
-          const level = classifyLevel(d, thresholds)
+          const { level, reason } = explainLevel(d, thresholds)
           const prev = lastAlertedLevel.current[d.icao]
 
           if (level < 2) {
@@ -59,7 +60,7 @@ export function useWeatherMonitor(icaos: string[]) {
             id: `${d.icao}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             icao: d.icao,
             level,
-            message: makeAlertMessage(d.icao, level, d.flight_category, d.gust_kt, d.weather),
+            message: makeAlertMessage(d.icao, level, reason),
             time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }),
           })
         }
