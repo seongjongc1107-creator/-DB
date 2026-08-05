@@ -753,7 +753,12 @@ class NavDataStore:
             id_set = new_ids if id_set is None else (id_set & new_ids)
 
         if fix:
-            _intersect(set(self.route_by_token.get(fix.upper(), [])))
+            # 콤마로 여러 fix/항공로를 같이 보내면 전부 지나는 항로만 남도록 AND로 교집합
+            # (예: "N892 지나면서 A582도 지나는 항로" — 검색창에서 여러 개 골랐을 때 씀)
+            for token in fix.split(","):
+                token = token.strip()
+                if token:
+                    _intersect(set(self.route_by_token.get(token.upper(), [])))
         if origin:
             _intersect(set(self.route_by_origin.get(origin.upper(), [])))
         if destination:

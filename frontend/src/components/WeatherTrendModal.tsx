@@ -748,7 +748,10 @@ function CollectBar({ status }: { status: CollectStatus | null }) {
       <div className="flex items-center gap-2 text-gray-400">
         {!isDone && <RefreshCw size={10} className="animate-spin text-blue-400" />}
         {isDone ? (
-          <span className="text-green-400">수집 완료 — {status.inserted.toLocaleString()}건 저장됨</span>
+          <span className="text-green-400">
+            수집 완료 — {status.inserted.toLocaleString()}건 저장됨
+            {status.skipped > 0 && ` (이미 수집된 ${status.skipped}개월 건너뜀)`}
+          </span>
         ) : status.status === 'error' ? (
           <span className="text-red-400">오류: {status.error}</span>
         ) : (
@@ -813,24 +816,43 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
     }
   }
 
+  // 수집 시작 후 완료(또는 실패)까지 기다리는 공용 헬퍼. 이미 촘촘히 수집된
+  // 달은 백엔드가 알아서 건너뛰므로(스킵), 매번 호출해도 재수집 구간에 대해서만
+  // 외부 API를 두드림 — "조회"를 누를 때마다 자동으로 앞서 실행해서, 선택한
+  // 기간 중 아직 수집 안 된 부분이 있으면 그 자리에서 채워 넣은 뒤 조회함.
+  function collectAndWait(): Promise<void> {
+    setCollectStatus(null)
+    return api.weather.historyCollect(icao, histStart, histEnd).then(res => {
+      if (res.error) throw new Error(res.error)
+      const taskId = res.task_id
+      return new Promise<void>((resolve, reject) => {
+        pollRef.current = setInterval(async () => {
+          const s = await api.weather.historyStatus(taskId)
+          setCollectStatus(s)
+          if (s.status === 'done' || s.status === 'error' || s.status === 'cancelled') {
+            clearInterval(pollRef.current!)
+            pollRef.current = null
+            if (s.status === 'error') reject(new Error(s.error ?? '데이터 수집 실패'))
+            else resolve()
+          }
+        }, 2000)
+      })
+    })
+  }
+
   async function handleCollect() {
-    setCollectStatus(null); setError(null)
-    const res = await api.weather.historyCollect(icao, histStart, histEnd)
-    if (res.error) { setError(res.error); return }
-    const taskId = res.task_id
-    pollRef.current = setInterval(async () => {
-      const s = await api.weather.historyStatus(taskId)
-      setCollectStatus(s)
-      if (s.status === 'done' || s.status === 'error') {
-        clearInterval(pollRef.current!)
-        pollRef.current = null
-      }
-    }, 2000)
+    setError(null)
+    try {
+      await collectAndWait()
+    } catch (e) {
+      setError(String(e))
+    }
   }
 
   async function handleHistLoad() {
     setLoading(true); setError(null)
     try {
+      await collectAndWait()
       if (histView === 'raw') {
         const d: WeatherHistoryTrend = await api.weather.historyTrend(icao, histStart, histEnd)
         if (d.error) setError(d.error)
@@ -847,7 +869,7 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
     }
   }
 
-  function handleDownloadCsv() {
+  async function handleDownloadCsv() {
     if (mode === 'history' && histView === 'monthly' && monthlyData && monthlyData.length > 0) {
       const headers = ['month','count','avg_wspd_kt','p10_wspd','p90_wspd','avg_vis_m','p10_vis_m','avg_ceiling_ft','avg_temp_c','avg_qnh_hpa','vfr_pct','mvfr_pct','ifr_pct','lifr_pct']
       const rows = monthlyData.map(m => [
@@ -861,7 +883,21 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
       downloadCsv(`${icao}_monthly_${histStart}_${histEnd}.csv`, headers, rows)
       return
     }
-    const pts = mode === 'realtime' ? (trendData?.metar ?? []) : (histPoints ?? [])
+
+    // 장기 조회(원시 데이터)는 화면 차트용으로 다운샘플링된 histPoints를 그대로
+    // 내려받으면 스프레드시트에서도 몇 시간짜리 이벤트가 듬성듬성 빠진 것처럼
+    // 보임 — CSV는 렌더링 부담이 없으니 raw=true로 다운샘플링 없는 원본을 따로
+    // 받아와서 내보냄
+    let pts = mode === 'realtime' ? (trendData?.metar ?? []) : (histPoints ?? [])
+    if (mode === 'history') {
+      setLoading(true)
+      try {
+        const d = await api.weather.historyTrend(icao, histStart, histEnd, true)
+        pts = d.points ?? []
+      } finally {
+        setLoading(false)
+      }
+    }
     if (pts.length === 0) return
     const headers = ['obs_time','wdir_deg','wspd_kt','wgst_kt','vis_m','ceiling_ft','temp_c','dewpoint_c','qnh_hpa','flight_category']
     const rows = pts.map(p => [p.obs_time, p.wdir, p.wspd, p.wgst, p.vis_m, p.ceiling_ft, p.temp_c, p.dewpoint_c, p.qnh_hpa, p.flight_category])
@@ -1013,7 +1049,7 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
               {mode === 'history'
                 ? (histPoints === null
                     ? '기간을 선택하고 [조회]를 눌러주세요.'
-                    : '선택한 기간에 수집된 데이터가 없습니다 — [데이터 수집]을 먼저 눌러주세요.')
+                    : '선택한 기간에는 관측 데이터가 없습니다 (자동 수집을 시도했지만 원본 데이터가 존재하지 않음).')
                 : 'METAR 데이터가 없습니다.'}
             </p>
           )}
@@ -1021,7 +1057,7 @@ export default function WeatherTrendModal({ icao, onClose }: Props) {
             <p className="text-xs text-gray-500 text-center py-8">
               {monthlyData === null
                 ? '기간을 선택하고 [조회]를 눌러주세요.'
-                : '선택한 기간에 수집된 데이터가 없습니다 — [데이터 수집]을 먼저 눌러주세요.'}
+                : '선택한 기간에는 관측 데이터가 없습니다 (자동 수집을 시도했지만 원본 데이터가 존재하지 않음).'}
             </p>
           )}
         </div>

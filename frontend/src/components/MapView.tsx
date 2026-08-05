@@ -308,6 +308,13 @@ export default function MapView() {
     list: Record<string, unknown>[]
     expanded: Record<string, unknown> | null
   } | null>(null)
+  // 팝업 위치를 드래그로 옮기면 여기에 저장 — null이면 클릭한 자리(contextMenu.x/y) 그대로 씀
+  const [ctxPopupPos, setCtxPopupPos] = useState<{ x: number; y: number } | null>(null)
+  const ctxDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
+
+  type CtxFilterField = 'dep' | 'arr' | 'number'
+  const CTX_FIELD_LABELS: Record<CtxFilterField, string> = { dep: 'DEP', arr: 'ARR', number: '#' }
+  const CTX_FIELD_ORDER: CtxFilterField[] = ['dep', 'arr', 'number']
 
   const onContextMenu = useCallback((e: MapLayerMouseEvent) => {
     if (state.spatialMode !== null) return
@@ -328,19 +335,78 @@ export default function MapView() {
       }
     }
     setContextMenu({ x: e.point.x, y: e.point.y, list, expanded: null })
-    setCtxNumberFilter('')
+    setCtxPopupPos(null)
+    setCtxFilters([])
   }, [state.spatialMode])
 
-  // 겹친 항로 목록 안에서도 사이드바와 동일하게 항로 번호로 추가 필터 가능
-  // (공백으로 여러 개 나열하면 OR 매칭, 예: "27 96 11")
-  const [ctxNumberFilter, setCtxNumberFilter] = useState('')
+  // 겹친 항로 목록 안에서 어떤 조건(출발/도착/항로 번호)을 걸지부터 드롭다운으로 고르고,
+  // 그 조건에 맞는 값도 드롭다운으로 고름 — "+"로 조건을 늘리고 X로 뺄 수 있음
+  // (자유 입력이 아니라, 이 팝업의 목록에 실제로 있는 값만 선택지로 보여줌)
+  const [ctxFilters, setCtxFilters] = useState<{ field: CtxFilterField; value: string }[]>([])
+
+  const contextMenuOptions = useMemo(() => {
+    if (!contextMenu) return { deps: [] as string[], arrs: [] as string[], numbers: [] as string[] }
+    const deps = new Set<string>()
+    const arrs = new Set<string>()
+    const numbers = new Set<string>()
+    for (const p of contextMenu.list) {
+      if (p.origin) deps.add(p.origin as string)
+      if (p.destination) arrs.add(p.destination as string)
+      if (p.number !== undefined) numbers.add(String(p.number))
+    }
+    return {
+      deps: Array.from(deps).sort(),
+      arrs: Array.from(arrs).sort(),
+      numbers: Array.from(numbers).sort((a, b) => Number(a) - Number(b)),
+    }
+  }, [contextMenu])
+
+  function ctxFieldOptions(field: CtxFilterField): string[] {
+    if (field === 'dep') return contextMenuOptions.deps
+    if (field === 'arr') return contextMenuOptions.arrs
+    return contextMenuOptions.numbers
+  }
+
   const contextMenuList = useMemo(() => {
     if (!contextMenu) return []
-    const numbers = ctxNumberFilter.trim().split(/\s+/).filter(Boolean).map(Number).filter(n => !isNaN(n))
-    if (numbers.length === 0) return contextMenu.list
-    const numberSet = new Set(numbers)
-    return contextMenu.list.filter(p => numberSet.has(p.number as number))
-  }, [contextMenu, ctxNumberFilter])
+    return contextMenu.list.filter(p => {
+      for (const f of ctxFilters) {
+        if (!f.value) continue
+        if (f.field === 'dep' && p.origin !== f.value) return false
+        if (f.field === 'arr' && p.destination !== f.value) return false
+        if (f.field === 'number' && String(p.number) !== f.value) return false
+      }
+      return true
+    })
+  }, [contextMenu, ctxFilters])
+
+  // 겹친 항로 팝업 드래그 — 헤더를 잡고 끌면 원하는 자리로 옮길 수 있음
+  const onCtxPopupDragStart = useCallback((e: React.MouseEvent) => {
+    if (!contextMenu) return
+    const base = ctxPopupPos ?? { x: contextMenu.x + 6, y: contextMenu.y + 6 }
+    ctxDragRef.current = { startX: e.clientX, startY: e.clientY, origX: base.x, origY: base.y }
+    e.preventDefault()
+  }, [contextMenu, ctxPopupPos])
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      const drag = ctxDragRef.current
+      if (!drag) return
+      const x = drag.origX + (e.clientX - drag.startX)
+      const y = drag.origY + (e.clientY - drag.startY)
+      setCtxPopupPos({
+        x: Math.min(Math.max(x, -260), window.innerWidth - 40),
+        y: Math.min(Math.max(y, 0), window.innerHeight - 40),
+      })
+    }
+    function onUp() { ctxDragRef.current = null }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
 
   // ESC로 우클릭 메뉴 닫기
   useEffect(() => {
@@ -1546,8 +1612,21 @@ export default function MapView() {
       {contextMenu && (
         <div
           className="absolute bg-gray-900 border border-gray-700 text-white text-xs rounded-lg shadow-2xl z-20 w-64 max-h-72 overflow-hidden flex flex-col"
-          style={{ left: contextMenu.x + 6, top: contextMenu.y + 6 }}
+          style={{
+            left: ctxPopupPos?.x ?? contextMenu.x + 6,
+            top: ctxPopupPos?.y ?? contextMenu.y + 6,
+          }}
         >
+          <div
+            onMouseDown={onCtxPopupDragStart}
+            className="flex items-center justify-between gap-2 px-2.5 py-1 border-b border-gray-700 shrink-0 cursor-move select-none bg-gray-800/60"
+            title="드래그해서 위치 옮기기"
+          >
+            <span className="text-gray-500 text-[10px]">⠿ 겹친 항로</span>
+            <button onClick={() => setContextMenu(null)} className="text-gray-500 hover:text-gray-200 shrink-0">
+              <X size={12} />
+            </button>
+          </div>
           {contextMenu.expanded ? (
             <>
               <button
@@ -1589,23 +1668,55 @@ export default function MapView() {
                 겹친 항로 {contextMenuList.length}개{contextMenuList.length !== contextMenu.list.length ? ` / ${contextMenu.list.length}개` : ''}
               </div>
               {contextMenu.list.length > 1 && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-700 shrink-0">
-                  <span className="text-gray-600 text-xs shrink-0">#</span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="항로 번호로 필터 (예: 27 96 11)"
-                    value={ctxNumberFilter}
-                    onChange={e => setCtxNumberFilter(e.target.value)}
-                    onClick={e => e.stopPropagation()}
-                    className="flex-1 bg-gray-800 border border-gray-700 text-white text-xs rounded px-2 py-1 outline-none focus:border-blue-500 placeholder-gray-600"
-                  />
-                  {ctxNumberFilter && (
+                <div className="flex flex-col gap-1 px-2.5 py-1.5 border-b border-gray-700 shrink-0">
+                  {ctxFilters.map((f, idx) => {
+                    const usedElsewhere = new Set(ctxFilters.filter((_, i) => i !== idx).map(x => x.field))
+                    const availableFields = CTX_FIELD_ORDER.filter(fl => fl === f.field || !usedElsewhere.has(fl))
+                    return (
+                      <div key={idx} className="flex items-center gap-1">
+                        <select
+                          value={f.field}
+                          onChange={e => {
+                            const field = e.target.value as CtxFilterField
+                            setCtxFilters(prev => prev.map((x, i) => i === idx ? { field, value: '' } : x))
+                          }}
+                          onClick={e => e.stopPropagation()}
+                          className="w-16 shrink-0 bg-gray-800 border border-gray-700 text-gray-300 text-[10px] rounded px-1 py-1 outline-none focus:border-blue-500"
+                        >
+                          {availableFields.map(fl => <option key={fl} value={fl}>{CTX_FIELD_LABELS[fl]}</option>)}
+                        </select>
+                        <select
+                          value={f.value}
+                          onChange={e => {
+                            const value = e.target.value
+                            setCtxFilters(prev => prev.map((x, i) => i === idx ? { ...x, value } : x))
+                          }}
+                          onClick={e => e.stopPropagation()}
+                          className="flex-1 min-w-0 bg-gray-800 border border-gray-700 text-white text-xs rounded px-1.5 py-1 outline-none focus:border-blue-500"
+                        >
+                          <option value="">전체</option>
+                          {ctxFieldOptions(f.field).map(v => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                        <button
+                          onClick={() => setCtxFilters(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-gray-500 hover:text-gray-300 shrink-0"
+                          title="조건 삭제"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                  {ctxFilters.length < CTX_FIELD_ORDER.length && (
                     <button
-                      onClick={() => setCtxNumberFilter('')}
-                      className="text-gray-500 hover:text-gray-300 text-xs shrink-0"
+                      onClick={() => {
+                        const used = new Set(ctxFilters.map(f => f.field))
+                        const next = CTX_FIELD_ORDER.find(fl => !used.has(fl))
+                        if (next) setCtxFilters(prev => [...prev, { field: next, value: '' }])
+                      }}
+                      className="self-start text-blue-400 hover:text-blue-300 text-[10px] flex items-center gap-0.5"
                     >
-                      지우기
+                      + 조건 추가
                     </button>
                   )}
                 </div>

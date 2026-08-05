@@ -103,15 +103,31 @@ export default function TyphoonPanel() {
     }
   }
 
-  async function loadTrack(eventId: string) {
+  async function loadTrack(typhoon: Typhoon) {
     setError(null)
     setPlaying(false)
-    setTrackLoading(eventId)
+    setTrackLoading(typhoon.id)
     try {
-      const data = await api.typhoon.track(eventId)
+      const data = await api.typhoon.track(typhoon.id)
       if (data.error) { setError(`트랙 오류: ${data.error}`); return }
       if (!data.track || data.track.length === 0) { setError('트랙 데이터 없음'); return }
-      dispatch({ type: 'SET_TYPHOON_TRACK', payload: data.track })
+      // GDACS 트랙 API는 시점마다 TD/TS/HU 등급 라벨(대표 풍속)만 줘서 반경이
+      // 근사치인데, "현재 시점" 스텝만큼은 방금 목록(/active)에서 받은 실측
+      // 풍속·반경이 이미 있으니 그걸로 덮어써서 지도에 처음 뜬 원과 트랙 재생을
+      // 시작했을 때의 원이 서로 다르게 보이지 않게 함
+      const track = data.track
+      const firstForecastIdx = track.findIndex(p => p.is_forecast)
+      const currentIdx = firstForecastIdx === -1 ? track.length - 1 : Math.max(0, firstForecastIdx - 1)
+      if (typhoon.wind_kt !== null) {
+        track[currentIdx] = {
+          ...track[currentIdx],
+          wind_kt: typhoon.wind_kt,
+          radius_nm: typhoon.radius_nm,
+          alert: typhoon.alert,
+          windIsExact: true,
+        }
+      }
+      dispatch({ type: 'SET_TYPHOON_TRACK', payload: track })
       // 트랙 전체 범위로 지도 자동 줌
       const lons = data.track.map(p => p.lon)
       const lats = data.track.map(p => p.lat)
@@ -190,7 +206,7 @@ export default function TyphoonPanel() {
               typhoon={t}
               trackLoading={trackLoading === t.id}
               onApply={() => dispatch({ type: 'SET_SPATIAL_FILTER', payload: makeFilter(t) })}
-              onTrack={() => loadTrack(t.id)}
+              onTrack={() => loadTrack(t)}
             />
           ))}
           <p className="text-[11px] text-gray-600 text-center">출처: GDACS (JTWC 포함)</p>
@@ -258,7 +274,7 @@ function TrackPlayer({
         <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
           {/* GDACS가 트랙 시점별로는 TD/TS/HU 등급 라벨만 주고 실측 풍속을 안 줘서
               (등급별 대표값), 여기 풍속/반경/기압 전부 추정치임을 명시 */}
-          <span>풍속 {pt.wind_kt} kt<span className="opacity-50 text-[9px] ml-0.5">(추정)</span></span>
+          <span>풍속 {pt.wind_kt} kt{!pt.windIsExact && <span className="opacity-50 text-[9px] ml-0.5">(추정)</span>}</span>
           <span>반경 {pt.radius_nm} NM<span className="opacity-50 text-[9px] ml-0.5">(추정)</span></span>
           <span>기압 {pt.pressure_hpa != null ? `${pt.pressure_hpa} hPa` : 'N/A'}
             {pt.pressure_hpa != null && <span className="opacity-50 text-[9px] ml-0.5">(추정)</span>}

@@ -31,6 +31,11 @@ AVWX_URL = "https://aviationweather.gov/api/data/metar"
 AVWX_TAF_URL = "https://aviationweather.gov/api/data/taf"
 ASOS_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
 
+# aviationweather.gov "visib"·mesonet ASOS "vsby" 둘 다 단위가 statute mile —
+# 예전에 해상거리 단위(nautical mile, 1852m)로 잘못 곱해서 실제보다 15% 크게
+# 나오던 버그가 있었음(예: ZMUB 9999/CAVOK가 11501m로 표시됨 — 정상은 10000m)
+_STATUTE_MILE_M = 1609.344
+
 # task_id → progress dict (in-memory; cleared on restart)
 _tasks: dict[str, dict] = {}
 
@@ -38,7 +43,7 @@ _tasks: dict[str, dict] = {}
 # ─── Shared parse helpers ──────────────────────────────────────────────────────
 
 def _classify_category(vis_m: Optional[int], ceiling_ft: Optional[int]) -> str:
-    vis_sm = (vis_m / 1852) if vis_m is not None else 10.0
+    vis_sm = (vis_m / _STATUTE_MILE_M) if vis_m is not None else 10.0
     ceil = ceiling_ft if ceiling_ft is not None else 99999
     if vis_sm < 1.0 or ceil < 500:
         return "LIFR"
@@ -81,7 +86,7 @@ def _parse_metar(raw: dict) -> dict:
     vis = raw.get("visib")
     try:
         vis_sm = float(str(vis).replace("+", "")) if vis is not None else None
-        vis_m = round(vis_sm * 1852) if vis_sm is not None else None
+        vis_m = round(vis_sm * _STATUTE_MILE_M) if vis_sm is not None else None
     except (TypeError, ValueError):
         vis_m = None
 
@@ -177,7 +182,6 @@ def _wind_tok(t: str) -> Optional[dict]:
 _SM_WHOLE_RE = re.compile(r"^[PM]?(\d+)SM$", re.I)
 _SM_FRAC_RE = re.compile(r"^[PM]?(\d+)/(\d+)SM$", re.I)
 _SM_MERGED_RE = re.compile(r"^(\d+)_(\d+)/(\d+)SM$", re.I)
-_STATUTE_MILE_M = 1609.344
 
 
 def _merge_sm_fractions(tokens: list[str]) -> list[str]:
@@ -347,7 +351,7 @@ def _asos_row_to_record(row: dict) -> Optional[dict]:
     qnh_hpa = round(alti * 33.8639) if alti is not None else None
 
     vsby = _fv("vsby")
-    vis_m = round(vsby * 1852) if vsby is not None else None
+    vis_m = round(vsby * _STATUTE_MILE_M) if vsby is not None else None
 
     ceiling_ft = None
     for i in range(1, 5):
@@ -387,11 +391,19 @@ async def _fetch_asos(client: httpx.AsyncClient, icao: str, start: date, end: da
         "direct": "yes",
         "report_type": "3,1",
     }
-    resp = await client.get(ASOS_URL, params=params, timeout=60)
+    # mesonet은 짧은 시간에 요청이 몰리면 429를 던지는데, 여기서 바로 포기하면
+    # 그 구간만 통째로 비어버려서(원래 문의였던 "듬성듬성 빈 데이터"가 재발함)
+    # 잠깐 쉬었다가 몇 번 재시도함
+    for attempt in range(4):
+        resp = await client.get(ASOS_URL, params=params, timeout=180)
+        if resp.status_code == 429:
+            await asyncio.sleep(5 * (attempt + 1))
+            continue
+        resp.raise_for_status()
+        rows = _parse_asos_csv(resp.text)
+        return [r for row in rows if (r := _asos_row_to_record(row)) and r["icao"] == icao]
     resp.raise_for_status()
-    rows = _parse_asos_csv(resp.text)
-    records = [r for row in rows if (r := _asos_row_to_record(row)) and r["icao"] == icao]
-    return records
+    return []
 
 
 async def _bulk_insert(records: list[dict]) -> int:
@@ -404,6 +416,26 @@ async def _bulk_insert(records: list[dict]) -> int:
         return result.rowcount or 0
 
 
+# 한 달치를 이미 촘촘하게 갖고 있으면(하루 평균 18건 이상 — ASOS는 보통 시간당
+# 1건, 결측 며칠 정도는 허용) 재수집을 건너뜀. 이게 없으면 "조회"할 때마다 이미
+# 수집된 달까지 매번 외부 API를 다시 긁어와서 느려지고, mesonet에도 불필요한
+# 부하를 줌.
+_MIN_ROWS_PER_DAY = 18
+
+
+async def _month_has_data(icao: str, m_start: date, m_end: date) -> bool:
+    async with AsyncSessionLocal() as session:
+        q = select(func.count()).select_from(MetarArchive).where(
+            MetarArchive.icao == icao,
+            MetarArchive.obs_time >= datetime.combine(m_start, datetime.min.time()),
+            MetarArchive.obs_time <= datetime.combine(m_end, datetime.max.time()),
+        )
+        result = await session.execute(q)
+        count = result.scalar_one()
+    days = (m_end - m_start).days + 1
+    return count >= days * _MIN_ROWS_PER_DAY
+
+
 async def _run_collect(task_id: str, icao: str, start: date, end: date) -> None:
     # Build list of month chunks
     months: list[tuple[date, date]] = []
@@ -414,20 +446,43 @@ async def _run_collect(task_id: str, icao: str, start: date, end: date) -> None:
         months.append((cur, chunk_end))
         cur = next_m
 
-    _tasks[task_id].update({"total_months": len(months), "processed": 0, "inserted": 0})
+    _tasks[task_id].update({"total_months": len(months), "processed": 0, "inserted": 0, "skipped": 0})
 
-    async with httpx.AsyncClient(timeout=90) as client:
-        for i, (m_start, m_end) in enumerate(months):
+    # 이미 촘촘히 수집된 달은 건너뛰고(스킵), 수집이 필요한 달만 골라 서로 연속된
+    # 구간끼리 하나의 요청으로 묶어서 보냄 — mesonet은 요청 1건당 자체 지연이 커서
+    # (달 하나만 요청해도 3~4초) 여러 해를 달 단위로 쪼개 순차 요청하면 수백 초씩
+    # 걸리고 요청 수가 많아질수록 429(rate limit)에도 잘 걸림. 반대로 같은 기간을
+    # 통째로 한 번에 요청하면(예: 5년치) 40초 안팎에 끝남 — 실측 확인함.
+    needed: list[tuple[date, date]] = []
+    for m_start, m_end in months:
+        if _tasks[task_id].get("cancelled"):
+            _tasks[task_id]["status"] = "cancelled"
+            return
+        if await _month_has_data(icao, m_start, m_end):
+            _tasks[task_id]["skipped"] += 1
+            _tasks[task_id]["processed"] += 1
+        else:
+            needed.append((m_start, m_end))
+
+    windows: list[tuple[date, date]] = []
+    for m_start, m_end in needed:
+        if windows and windows[-1][1] + timedelta(days=1) == m_start:
+            windows[-1] = (windows[-1][0], m_end)
+        else:
+            windows.append((m_start, m_end))
+
+    async with httpx.AsyncClient(timeout=180) as client:
+        for w_start, w_end in windows:
             if _tasks[task_id].get("cancelled"):
                 _tasks[task_id]["status"] = "cancelled"
                 return
             try:
-                records = await _fetch_asos(client, icao, m_start, m_end)
+                records = await _fetch_asos(client, icao, w_start, w_end)
                 n = await _bulk_insert(records)
                 _tasks[task_id]["inserted"] += n
             except Exception as e:
                 _tasks[task_id]["error"] = str(e)
-            _tasks[task_id]["processed"] = i + 1
+            _tasks[task_id]["processed"] += sum(1 for m_start, _ in needed if w_start <= m_start <= w_end)
             await asyncio.sleep(0.3)
 
     _tasks[task_id]["status"] = "done"
@@ -640,7 +695,7 @@ async def history_collect(
     task_id = str(uuid.uuid4())
     _tasks[task_id] = {
         "icao": icao, "start": start, "end": end,
-        "status": "running", "total_months": 0, "processed": 0, "inserted": 0,
+        "status": "running", "total_months": 0, "processed": 0, "inserted": 0, "skipped": 0,
         "error": None, "cancelled": False,
     }
     background_tasks.add_task(_run_collect, task_id, icao, start_d, end_d)
@@ -660,8 +715,9 @@ async def history_trend(
     icao: str = Query(...),
     start: str = Query(...),
     end: str = Query(...),
+    raw: bool = Query(False, description="true면 다운샘플링 없이 원본 그대로 반환 (CSV 내보내기용)"),
 ):
-    """Return stored METAR time-series. Auto-downsamples for large ranges."""
+    """Return stored METAR time-series. Auto-downsamples for large ranges (unless raw=true)."""
     icao = icao.strip().upper()
     try:
         start_dt = datetime.fromisoformat(start).replace(tzinfo=timezone.utc)
@@ -682,24 +738,55 @@ async def history_trend(
         result = await session.execute(q)
         rows = result.scalars().all()
 
-    # Downsample for long ranges
-    if delta_days > 30 and len(rows) > 1000:
-        step = max(1, len(rows) // 1000)
-        rows = rows[::step]
+    # 장기 구간 다운샘플링 — 예전엔 "N번째 행마다 하나씩" 뽑았는데, 이러면 안개나
+    # 돌풍처럼 몇 시간만 지속되는 실제 기상 이벤트가 표본 지점에 우연히 걸리지
+    # 않는 한 통째로 사라져서, 차트가 "평평하다가 가끔 뾰족하게 튀는" 부자연스러운
+    # 모습이 됨(듬성듬성 비어 보이는 원인). 대신 구간(버킷)마다 최악값(최저 시정·
+    # 최저 운고·최대 풍속/돌풍)을 골라 대표점으로 삼아, 다운샘플링을 하더라도
+    # 실제 있었던 악기상 이벤트가 묻히지 않게 함.
+    # CSV 내보내기(raw=true)는 화면 차트와 달리 렌더링 부담이 없으니 다운샘플링을
+    # 아예 건너뛰고 원본 시간당 데이터를 그대로 내보냄.
+    if not raw and delta_days > 30 and len(rows) > 1000:
+        bucket_size = max(1, len(rows) // 1000)
+        bucketed = []
+        for i in range(0, len(rows), bucket_size):
+            chunk = rows[i:i + bucket_size]
+            mid = chunk[len(chunk) // 2]
 
-    points = [{
-        "obs_time": r.obs_time.isoformat() + "Z",
-        "wdir": r.wdir,
-        "wspd": r.wspd,
-        "wgst": r.wgst,
-        "vis_m": r.vis_m,
-        "ceiling_ft": r.ceiling_ft,
-        "temp_c": r.temp_c,
-        "dewpoint_c": r.dewpoint_c,
-        "qnh_hpa": r.qnh_hpa,
-        "flight_category": r.flight_category,
-        "raw": r.raw,
-    } for r in rows]
+            def _extreme(attr: str, fn):
+                vals = [getattr(r, attr) for r in chunk if getattr(r, attr) is not None]
+                return fn(vals) if vals else None
+
+            vis_m = _extreme("vis_m", min)
+            ceiling_ft = _extreme("ceiling_ft", min)
+            bucketed.append({
+                "obs_time": mid.obs_time.isoformat() + "Z",
+                "wdir": mid.wdir,
+                "wspd": _extreme("wspd", max),
+                "wgst": _extreme("wgst", max),
+                "vis_m": vis_m,
+                "ceiling_ft": ceiling_ft,
+                "temp_c": mid.temp_c,
+                "dewpoint_c": mid.dewpoint_c,
+                "qnh_hpa": mid.qnh_hpa,
+                "flight_category": _classify_category(vis_m, ceiling_ft),
+                "raw": mid.raw,
+            })
+        points = bucketed
+    else:
+        points = [{
+            "obs_time": r.obs_time.isoformat() + "Z",
+            "wdir": r.wdir,
+            "wspd": r.wspd,
+            "wgst": r.wgst,
+            "vis_m": r.vis_m,
+            "ceiling_ft": r.ceiling_ft,
+            "temp_c": r.temp_c,
+            "dewpoint_c": r.dewpoint_c,
+            "qnh_hpa": r.qnh_hpa,
+            "flight_category": r.flight_category,
+            "raw": r.raw,
+        } for r in rows]
 
     return {"icao": icao, "count": len(points), "points": points}
 

@@ -45,7 +45,7 @@ def _route_feature(r):
 def list_routes(
     origin: Optional[str] = None,
     destination: Optional[str] = None,
-    fix: Optional[str] = None,
+    fix: Optional[str] = Query(None, description="Comma-separated fix/airway names (AND)"),
 ):
     routes = store.get_routes(origin=origin, destination=destination, fix=fix)
     return {"count": len(routes), "routes": [_route_meta(r) for r in routes]}
@@ -55,7 +55,7 @@ def list_routes(
 def route_geometry(
     origin: Optional[str] = None,
     destination: Optional[str] = None,
-    fix: Optional[str] = None,
+    fix: Optional[str] = Query(None, description="Comma-separated fix/airway names (AND)"),
     ids: Optional[str] = Query(None, description="Comma-separated route IDs"),
 ):
     id_list = None

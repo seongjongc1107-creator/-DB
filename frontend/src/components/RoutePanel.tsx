@@ -37,12 +37,20 @@ export default function RoutePanel() {
     api.routes.destinations().then(setDestinations).catch(() => {})
   }, [])
 
+  // 검색창에서 고른 airway/waypoint 전부(하나만이 아니라) — 콤마로 이어서 보내면
+  // 백엔드가 전부 지나는 항로만 AND로 교집합해줌. 예전엔 activeAirway/activeWaypoint가
+  // 각각 최신 1개만 저장돼서, 두 번째 airway를 고르면 첫 번째 조건이 조용히 사라졌음
+  const activeFixKey = state.highlightPoints
+    .filter(h => h.type === 'airway' || h.type === 'waypoint')
+    .map(h => h.id)
+    .join(',')
+
   useEffect(() => {
     if (!state.origin && !state.destination) return
     // 이미 airway/waypoint를 검색해서 활성화해둔 상태라면(예: N892 검색 후) 출발지·
     // 도착지까지 같이 골랐을 때 "그 항공로를 지나는 RKSI→VVPQ 항로"처럼 세 조건을
     // 한 번에 교집합으로 좁혀줌 — 백엔드가 origin/destination/fix를 동시에 지원함
-    const fix = state.activeAirway || state.activeWaypoint || undefined
+    const fix = activeFixKey || undefined
     dispatch({ type: 'SET_LOADING', payload: true })
     Promise.all([
       api.routes.list({ origin: state.origin || undefined, destination: state.destination || undefined, fix }),
@@ -52,7 +60,7 @@ export default function RoutePanel() {
       dispatch({ type: 'SET_ROUTE_GEOJSON', payload: geoData })
       dispatch({ type: 'SET_SELECTED_ROUTES', payload: [] })
     }).catch(() => {}).finally(() => dispatch({ type: 'SET_LOADING', payload: false }))
-  }, [state.origin, state.destination, state.activeAirway, state.activeWaypoint, dispatch])
+  }, [state.origin, state.destination, activeFixKey, dispatch])
 
   // 공간 필터 해제 시 대체 항로 모드도 해제
   useEffect(() => {
@@ -268,16 +276,16 @@ export default function RoutePanel() {
         )}
       </div>
 
-      {state.activeAirway && (
-        <div className="bg-yellow-900/30 border border-yellow-700/50 rounded px-2 py-1.5 text-xs text-yellow-300">
-          항공로 <strong>{state.activeAirway}</strong> — {routes.length}개 항로 매칭
+      {state.highlightPoints.filter(h => h.type === 'airway').map(h => (
+        <div key={`awy-${h.id}`} className="bg-yellow-900/30 border border-yellow-700/50 rounded px-2 py-1.5 text-xs text-yellow-300">
+          항공로 <strong>{h.name}</strong> — {routes.length}개 항로 매칭
         </div>
-      )}
-      {state.activeWaypoint && (
-        <div className="bg-blue-900/30 border border-blue-700/50 rounded px-2 py-1.5 text-xs text-blue-300">
-          Waypoint <strong>{state.activeWaypoint}</strong> — {routes.length}개 항로 매칭
+      ))}
+      {state.highlightPoints.filter(h => h.type === 'waypoint').map(h => (
+        <div key={`wpt-${h.id}`} className="bg-blue-900/30 border border-blue-700/50 rounded px-2 py-1.5 text-xs text-blue-300">
+          Waypoint <strong>{h.name}</strong> — {routes.length}개 항로 매칭
         </div>
-      )}
+      ))}
 
       {/* Route list / Alt route list */}
       <div className="flex-1 overflow-y-auto space-y-1 pr-0.5">

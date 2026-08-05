@@ -74,8 +74,8 @@ export const api = {
     },
     historyStatus: (taskId: string) =>
       get<CollectStatus>(`/weather/history/status/${encodeURIComponent(taskId)}`),
-    historyTrend: (icao: string, start: string, end: string) =>
-      get<WeatherHistoryTrend>('/weather/history/trend', { icao, start, end }),
+    historyTrend: (icao: string, start: string, end: string, raw?: boolean) =>
+      get<WeatherHistoryTrend>('/weather/history/trend', { icao, start, end, ...(raw ? { raw: 'true' } : {}) }),
     historyMonthly: (icao: string, start: string, end: string) =>
       get<WeatherHistoryMonthly>('/weather/history/monthly', { icao, start, end }),
   },

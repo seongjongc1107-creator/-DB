@@ -212,6 +212,7 @@ export interface CollectStatus {
   total_months: number
   processed: number
   inserted: number
+  skipped: number  // 이미 촘촘히 수집돼 있어 재수집을 건너뛴 달 수
   error: string | null
 }
 
@@ -241,6 +242,9 @@ export interface TyphoonTrackPoint extends Typhoon {
   time: string
   is_forecast?: boolean
   pressure_hpa?: number | null
+  // true면 /active의 실측 풍속·반경으로 덮어쓴 "현재 시점" 스텝 — 나머지는
+  // GDACS 등급 라벨(TD/TS/HU) 기반 대표값이라 추정치임
+  windIsExact?: boolean
 }
 
 export interface VolcanicAshStep {
