@@ -171,23 +171,35 @@ function ApproachTab({ approaches }: { approaches: ApproachProc[] }) {
 type FoisSection = { loading: boolean; flights: FoisFlight[]; error?: string }
 
 // FOIS 시각은 KST("HHMM")로 옴 — 항공 운항 관행대로 UTC(Zulu)로 바꿔서 표시.
-// 날짜는 안 넘겨받으니 자정을 넘어가면(KST 00:00~08:59) 전날 UTC로 넘어간다는
-// 것만 "(-1)"로 짧게 표기 — 정확한 날짜 연산이 아니라 오해 방지용 힌트
-function kstToUtc(t: string | null): string {
+// FOIS는 조회 날짜를 "출발일" 기준으로 편을 골라오므로, 도착시각(eta/sta)이
+// 출발시각(priorKst)보다 시계상 이르면 자정을 넘겨 "다음날" 도착한 것 — 이 경우
+// 그냥 오늘 그 시각으로 오해하면 실제보다 하루 이른 UTC로 잘못 표시됨(반대로도
+// 마찬가지). priorKst를 주면 그 기준으로 다음날 여부를 판단해서 정확히 환산.
+function kstToUtc(t: string | null, priorKst?: string | null): string {
   if (!t || t.length !== 4) return '—'
   const h = parseInt(t.slice(0, 2), 10)
-  const m = t.slice(2)
-  const utcH = ((h - 9) + 24) % 24
-  const rollsBack = h - 9 < 0
-  return `${String(utcH).padStart(2, '0')}:${m}${rollsBack ? ' (-1)' : ''}`
+  const m = parseInt(t.slice(2), 10)
+  let dayOffset = 0
+  if (priorKst && priorKst.length === 4) {
+    const priorH = parseInt(priorKst.slice(0, 2), 10)
+    if (h < priorH) dayOffset = 1  // 기준 시각(출발)보다 이르면 자정을 넘긴 것
+  }
+  const totalMin = dayOffset * 1440 + h * 60 + m
+  const utcMin = totalMin - 9 * 60
+  const dayDelta = Math.floor(utcMin / 1440)
+  const wrapped = utcMin - dayDelta * 1440
+  const uh = Math.floor(wrapped / 60), um = wrapped % 60
+  const tag = dayDelta < 0 ? ' (-1)' : dayDelta > 0 ? ' (+1)' : ''
+  return `${String(uh).padStart(2, '0')}:${String(um).padStart(2, '0')}${tag}`
 }
 
 function ScheduleRows({
-  flights, otherAirport, timeOf, overlayIds, rowStatus, onToggleOverlay,
+  flights, otherAirport, timeOf, refTimeOf, overlayIds, rowStatus, onToggleOverlay,
 }: {
   flights: FoisFlight[]
   otherAirport: (f: FoisFlight) => string
   timeOf: (f: FoisFlight) => string | null
+  refTimeOf?: (f: FoisFlight) => string | null
   overlayIds: Set<number>
   rowStatus: Record<number, 'loading' | 'error'>
   onToggleOverlay: (f: FoisFlight) => void
@@ -206,7 +218,7 @@ function ScheduleRows({
             <span className="font-mono text-gray-300 shrink-0 w-16 truncate">{f.callsign}</span>
             <span className="font-mono text-gray-500 shrink-0 w-10">{otherAirport(f)}</span>
             <span className="text-gray-500 shrink-0 whitespace-nowrap">
-              {kstToUtc(timeOf(f))} <span className="text-gray-700">UTC</span>
+              {kstToUtc(timeOf(f), refTimeOf?.(f))} <span className="text-gray-700">UTC</span>
             </span>
             {f.dep_status === 'DLA' && (
               <span className="text-[9px] px-1 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-700 shrink-0">지연</span>
@@ -310,6 +322,7 @@ function ScheduleTab({ icao }: { icao: string }) {
         ) : (
           <ScheduleRows
             flights={arr.flights} otherAirport={f => f.dep ?? '—'} timeOf={f => f.eta ?? f.sta}
+            refTimeOf={f => f.etd ?? f.sched_time}
             overlayIds={overlayIds} rowStatus={rowStatus} onToggleOverlay={toggleOverlay}
           />
         )}

@@ -24,6 +24,26 @@ def _dummy() -> str:
     return str(random.randint(10_000_000, 99_999_999))
 
 
+def _hhmm_to_min(t: Optional[str]) -> Optional[int]:
+    if not t or len(t) != 4:
+        return None
+    return int(t[:2]) * 60 + int(t[2:])
+
+
+def _arrival_sort_key(f: dict) -> int:
+    """FOIS는 조회한 srchDate 기준 '출발일'로 편을 골라오기 때문에, 도착시각(eta/sta)이
+    출발시각(etd)보다 시계상 이르면 자정을 넘겨 다음날 도착한 것 — 그 경우 24시간을
+    더해야 실제 시간 순서(예: 오늘 23시대 도착 다음에 다음날 00시대 도착)로 정렬됨.
+    이걸 안 해주면 자정 넘겨 도착하는 편이 되레 리스트 맨 앞으로 튀어오름."""
+    eta = _hhmm_to_min(f.get("eta") or f.get("sta"))
+    if eta is None:
+        return 9999
+    etd = _hhmm_to_min(f.get("etd") or f.get("sched_time"))
+    if etd is not None and eta < etd:
+        eta += 24 * 60
+    return eta
+
+
 @router.get("/schedule")
 async def get_schedule(
     dep: Optional[str] = Query(None, description="출발 공항 ICAO (비우면 전체)"),
@@ -83,7 +103,13 @@ async def get_schedule(
         "ata": r.get("ata"),
         "ams_rec_pk": r.get("amsRecPk"),
     } for r in records]
-    flights.sort(key=lambda f: f["etd"] or f["sched_time"] or "9999")
+    # dep으로 조회했으면(도착지 무관) 출발시각 기준, arr만으로 조회했으면(출발지 무관)
+    # 도착시각 기준으로 정렬 — 프론트가 실제로 그 시각을 보여주는 쪽과 맞춰야
+    # KST→UTC 환산 시 자정을 넘는 "(-1)" 편이 화면에서 엉뚱한 순서로 보이지 않음
+    if dep:
+        flights.sort(key=lambda f: f["etd"] or f["sched_time"] or "9999")
+    else:
+        flights.sort(key=_arrival_sort_key)
 
     return {"date": srch_date, "dep": dep or None, "arr": arr or None, "count": len(flights), "flights": flights}
 
