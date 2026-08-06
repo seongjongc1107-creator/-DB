@@ -588,9 +588,13 @@ class NavDataStore:
         raw: List[List[float]] = []
         passed_fixes: Dict[str, List[float]] = {}
         airway_gaps: List[str] = []
-        legs: List[Dict[str, object]] = []
+        # (항로명, raw 시작 인덱스, raw 끝 인덱스) — 좌표값을 바로 담지 않고 인덱스만
+        # 기록해뒀다가 맨 마지막에 _fix_antimeridian이 적용된 좌표에서 잘라냄. 날짜변경선을
+        # 넘는 항로(예: RJCC-PANC)에서 각 구간 좌표를 따로 보정하면 전체 라인의 보정 기준과
+        # 어긋나 라벨이 지구 반대편처럼 동떨어진 곳에 찍히는 문제가 있었음.
+        leg_spans: List[Tuple[str, int, int]] = []
         if not tokens:
-            return raw, passed_fixes, airway_gaps, legs
+            return raw, passed_fixes, airway_gaps, []
 
         # Pre-compute max allowable single-leg distance:
         # use 1.5× the direct OD distance, with a floor of 2000 km
@@ -637,10 +641,10 @@ class NavDataStore:
                 # directly, in which case it behaves like a fix-slot token too.
                 pts = self._lookup_procedure(token, near=ref) if is_star_pos else None
                 if pts is not None:
+                    start_idx = len(raw) - 1 if ref is not None else len(raw)
                     raw.extend(pts)
                     if pts:
-                        leg_pts = ([ref] if ref is not None else []) + pts
-                        legs.append({"airway": token, "coords": leg_pts})
+                        leg_spans.append((token, start_idx, len(raw) - 1))
                         ref = pts[-1][:]
                         ref_name = None  # procedure endpoint isn't a named fix
                     expect_connector = False
@@ -658,9 +662,9 @@ class NavDataStore:
 
             proc_pts = self._lookup_procedure(token, near=ref) if (is_sid_pos or is_star_pos) else None
             if proc_pts is not None:
+                start_idx = len(raw) - 1 if ref is not None else len(raw)
                 raw.extend(proc_pts)
-                leg_pts = ([ref] if ref is not None else []) + proc_pts
-                legs.append({"airway": token, "coords": leg_pts})
+                leg_spans.append((token, start_idx, len(raw) - 1))
                 ref = proc_pts[-1][:]
                 ref_name = None
                 pending_airway = None
@@ -677,9 +681,9 @@ class NavDataStore:
                 # Not a plain fix anywhere, but does resolve as a procedure even
                 # though it's not in the usual SID/STAR slot — better than dropping
                 # the token entirely.
+                start_idx = len(raw) - 1 if ref is not None else len(raw)
                 raw.extend(pts)
-                leg_pts = ([ref] if ref is not None else []) + pts
-                legs.append({"airway": token, "coords": leg_pts})
+                leg_spans.append((token, start_idx, len(raw) - 1))
                 ref = pts[-1][:]
                 ref_name = None
                 pending_airway = None
@@ -707,12 +711,12 @@ class NavDataStore:
                 self._expand_airway(pending_airway, ref_name, token)
                 if pending_airway and ref_name else None
             )
-            leg_start = ref[:] if ref is not None else None
+            leg_start_idx = len(raw) - 1 if ref is not None else len(raw)
             if expanded and len(expanded) > 2:
                 raw.extend([[f.lon, f.lat] for f in expanded[1:]])
                 ref = [expanded[-1].lon, expanded[-1].lat]
                 passed_fixes.update({f.fix: [f.lon, f.lat] for f in expanded})
-                legs.append({"airway": pending_airway, "coords": [[f.lon, f.lat] for f in expanded]})
+                leg_spans.append((pending_airway, leg_start_idx, len(raw) - 1))
             else:
                 if pending_airway and ref_name and expanded is None:
                     # 항공로 이름은 유효하지만 이 두 fix를 실제로 잇지는 않음 — 직선으로 대체됨
@@ -720,13 +724,18 @@ class NavDataStore:
                 raw.append(chosen[:])
                 ref = chosen
                 passed_fixes[token] = chosen[:]
-                leg_pts = ([leg_start] if leg_start is not None else []) + [chosen]
-                legs.append({"airway": pending_airway or "DCT", "coords": leg_pts})
+                leg_spans.append((pending_airway or "DCT", leg_start_idx, len(raw) - 1))
             ref_name = token
             pending_airway = None
             expect_connector = True
 
-        return _fix_antimeridian(raw), passed_fixes, airway_gaps, legs
+        fixed = _fix_antimeridian(raw)
+        legs = [
+            {"airway": label, "coords": fixed[start:end + 1]}
+            for label, start, end in leg_spans
+            if end > start
+        ]
+        return fixed, passed_fixes, airway_gaps, legs
 
     def _resolve_geometries(self) -> None:
         for route in self.routes:
