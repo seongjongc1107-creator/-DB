@@ -71,7 +71,11 @@ function buildTafFn(periods: TafPeriod[]): (timeMs: number) => TafState {
       }
     }
 
-    const t = tempos.find(t => timeMs >= t.from && timeMs <= t.to)
+    // 끝 경계(to)는 배타적으로 — TEMPO 구간이 등호 하나 사이로 맞닿아 있으면
+    // (예: 0606/0610 바로 다음 0610/0618) 그 경계 순간엔 둘 다 조건을 만족해서
+    // 앞 구간(끝나는 쪽)이 먼저 걸려버림 — 뒤 구간(시작하는 쪽)이 이겨야 함
+    const t = tempos.find(t => timeMs >= t.from && timeMs < t.to)
+      ?? tempos.find(t => timeMs === t.to)
     if (t) s.tempo = { wspd: t.wspd, wgst: t.wgst, vis_m: t.vis_m, ceiling_ft: t.ceiling_ft }
     return s
   }
