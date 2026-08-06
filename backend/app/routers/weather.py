@@ -168,14 +168,20 @@ def _iso_z(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_WIND_UNIT_TO_KT = {"KT": 1.0, "MPS": 1.943844, "KMH": 0.539957}
+
+
 def _wind_tok(t: str) -> Optional[dict]:
-    m = re.match(r"^(VRB|\d{3})(\d{2,3})(?:G(\d{2,3}))?KT$", t, re.I)
+    # 몽골/중국 등 일부 공항은 TAF 풍속을 KT 대신 MPS(m/s)·KMH(km/h)로 발표함
+    # (예: ZMCK "VRB02MPS") — 단위를 knots로 환산해서 다른 공항과 동일하게 비교
+    m = re.match(r"^(VRB|\d{3})(\d{2,3})(?:G(\d{2,3}))?(KT|MPS|KMH)$", t, re.I)
     if not m:
         return None
+    factor = _WIND_UNIT_TO_KT[m.group(4).upper()]
     return {
         "wdir": None if m.group(1).upper() == "VRB" else int(m.group(1)),
-        "wspd": int(m.group(2)),
-        "wgst": int(m.group(3)) if m.group(3) else None,
+        "wspd": round(int(m.group(2)) * factor),
+        "wgst": round(int(m.group(3)) * factor) if m.group(3) else None,
     }
 
 

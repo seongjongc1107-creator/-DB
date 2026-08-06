@@ -389,7 +389,7 @@ function WindRoseChart({ data }: { data: ChartPoint[] }) {
   const total = wdirs.length
   const maxCount = Math.max(...counts, 1)
   const dominantIdx = counts.indexOf(maxCount)
-  const cx = 70, cy = 70, maxR = 46, minR = 8
+  const cx = 78, cy = 78, maxR = 46, minR = 8
 
   const latest = [...data].reverse().find(d => d.wdir !== null)?.wdir ?? null
 
@@ -405,7 +405,7 @@ function WindRoseChart({ data }: { data: ChartPoint[] }) {
         <p className="text-xs text-gray-600 text-center py-6">풍향 데이터가 없습니다.</p>
       ) : (
         <div className="flex items-center gap-4 py-1">
-          <svg width={140} height={140} viewBox="0 0 140 140" className="shrink-0">
+          <svg width={156} height={156} viewBox="0 0 156 156" className="shrink-0">
             {/* 배경 기준 원 — 꽃잎과 같은 척도로 25/50/75/100% 표시 */}
             {[0.25, 0.5, 0.75, 1].map(f => (
               <circle key={f} cx={cx} cy={cy} r={ringR(f)} fill="none" stroke="#1f2937" strokeWidth={1} />
@@ -433,13 +433,14 @@ function WindRoseChart({ data }: { data: ChartPoint[] }) {
                   stroke={isDominant ? '#fbbf24' : '#60a5fa'} strokeWidth={0.5} strokeOpacity={0.6} />
               )
             })}
-            {/* 방위 라벨 (N/E/S/W) */}
-            {[0, 90, 180, 270].map(deg => {
-              const [lx, ly] = polar(cx, cy, maxR + 10, deg)
+            {/* 방위 라벨 — 주요 4방위는 글자+각도, 나머지 4방위는 각도만 표시해 방위각을 바로 읽을 수 있게 함 */}
+            {[0, 45, 90, 135, 180, 225, 270, 315].map(deg => {
+              const cardinal = ({ 0: 'N', 90: 'E', 180: 'S', 270: 'W' } as Record<number, string>)[deg]
+              const [lx, ly] = polar(cx, cy, maxR + (cardinal ? 11 : 9), deg)
               return (
                 <text key={deg} x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
-                  fontSize={9} fill="#64748b" fontWeight={600}>
-                  {{ 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[deg]}
+                  fontSize={cardinal ? 9 : 6} fill={cardinal ? '#64748b' : '#475569'} fontWeight={cardinal ? 600 : 400}>
+                  {cardinal ? `${cardinal} ${deg}°` : `${deg}°`}
                 </text>
               )
             })}
@@ -452,7 +453,9 @@ function WindRoseChart({ data }: { data: ChartPoint[] }) {
           <div className="text-[11px] text-gray-400 space-y-1">
             <div>
               <span className="text-gray-600">우세 풍향 </span>
-              <span className="font-bold text-amber-400">{ROSE_LABELS[dominantIdx]}</span>
+              <span className="font-bold text-amber-400">
+                {ROSE_LABELS[dominantIdx]} ({dominantIdx * sectorWidth}°)
+              </span>
               <span className="text-gray-600"> ({Math.round(maxCount / total * 100)}%)</span>
             </div>
             {latest !== null && (
