@@ -250,6 +250,16 @@ export default function MapView() {
       setAshPopupPos(null)
       return
     }
+    // 태풍 영역/중심점 클릭 → 이름·경보단계·풍속·반경 고정 팝업 (화산재와 동일한 팝업 재사용)
+    if (f.layer?.id === 'typhoon-fill' || f.layer?.id === 'typhoon-center') {
+      setAshPopup({ x: e.point.x, y: e.point.y, props: f.properties ?? {} })
+      setAshPopupPos(null)
+      return
+    }
+    // 태풍 트랙 점은 호버 툴팁 전용 — 클릭은 무시(항로 선택 로직으로 새지 않게)
+    if (f.layer?.id === 'typhoon-track-dots') {
+      return
+    }
     // Airport click → open METAR panel
     if (f.layer?.id === 'airports-circle-hit') {
       const icao = f.properties?.id as string | undefined
@@ -562,12 +572,15 @@ export default function MapView() {
     const features = state.typhoons.flatMap(t => {
       const center: [number, number] = [t.lon, t.lat]
       const circle = turf.circle(center, t.radius_nm, { steps: 64, units: 'nauticalmiles' })
+      // 원(Polygon)·중심점(Point) 둘 다 같은 속성 세트를 갖게 해서, 어느 쪽을 클릭/호버해도
+      // 팝업·툴팁에 이름·경보단계·풍속·반경을 전부 표시할 수 있게 함
+      const props = { id: t.id, name: t.name, color: t.color, alert: t.alert, wind_kt: t.wind_kt, radius_nm: t.radius_nm }
       return [
-        { ...circle, properties: { id: t.id, name: t.name, color: t.color, radius_nm: t.radius_nm } },
+        { ...circle, properties: props },
         {
           type: 'Feature' as const,
           geometry: { type: 'Point' as const, coordinates: center },
-          properties: { id: t.id, name: t.name, color: t.color, wind_kt: t.wind_kt },
+          properties: props,
         },
       ]
     })
@@ -645,11 +658,15 @@ export default function MapView() {
         geometry: { type: 'LineString', coordinates: track.slice(0, step + 1).map(p => [p.lon, p.lat]) },
         properties: { kind: 'past' },
       }] : []),
-      // 모든 위치 점
+      // 모든 위치 점 — 호버 시 그 스텝의 시각·풍속·기압을 보여줄 수 있게 속성 포함
       ...track.map((p, i) => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-        properties: { kind: 'dot', past: i <= step, current: i === step, color: p.color, forecast: p.is_forecast ?? false },
+        properties: {
+          kind: 'dot', past: i <= step, current: i === step, color: p.color, forecast: p.is_forecast ?? false,
+          name: p.name, time: p.time, alert: p.alert, wind_kt: p.wind_kt,
+          pressure_hpa: p.pressure_hpa ?? null, radius_nm: p.radius_nm,
+        },
       })),
     ]
     return { type: 'FeatureCollection' as const, features: features as any[] }
@@ -837,6 +854,7 @@ export default function MapView() {
             'waypoints-circle-hit', 'all-airways-line-hit',
             ...(state.layers.traffic ? ['traffic-icon'] : []),
             ...(state.layers.volcanicAsh ? ['volcanic-ash-fill', 'volcanic-ash-volcano-point'] : []),
+            ...(state.layers.typhoon ? ['typhoon-fill', 'typhoon-center', 'typhoon-track-dots'] : []),
           ]
         }
         onLoad={() => setMapLoaded(true)}
@@ -1543,6 +1561,42 @@ export default function MapView() {
               </div>
               <div className="text-gray-600 text-[10px] pt-0.5">클릭하면 전문 확인</div>
             </div>
+          ) : tooltip.props.kind === 'dot' ? (
+            // 태풍 이동 경로 점 hover — 이 스텝이 몇 시 예보/실측인지 바로 확인
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: tooltip.props.color as string }} />
+                <span className="font-bold text-sm text-white">🌀 {tooltip.props.name as string}</span>
+                <span className="text-gray-400 font-normal">· {tooltip.props.time as string}</span>
+              </div>
+              <div className="text-gray-400 text-[11px] space-y-0.5">
+                <div>
+                  {tooltip.props.forecast ? <span className="text-orange-400">예보</span> : <span className="text-gray-300">실측</span>}
+                  {' · '}경보 <span style={{ color: tooltip.props.color as string }}>{tooltip.props.alert as string}</span>
+                </div>
+                <div>
+                  풍속 {tooltip.props.wind_kt != null ? `${tooltip.props.wind_kt}kt` : '—'}
+                  {tooltip.props.pressure_hpa != null && <span> · {tooltip.props.pressure_hpa as number}hPa</span>}
+                  {tooltip.props.radius_nm != null && <span> · 강풍반경 {tooltip.props.radius_nm as number}NM</span>}
+                </div>
+              </div>
+            </div>
+          ) : tooltip.props.radius_nm != null && tooltip.props.wind_kt !== undefined ? (
+            // 태풍 영역/중심점 hover — 클릭하면 아래 고정 팝업으로 이어짐
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: tooltip.props.color as string }} />
+                <span className="font-bold text-sm text-white">🌀 {tooltip.props.name as string}</span>
+              </div>
+              <div className="text-gray-400 text-[11px] space-y-0.5">
+                <div>경보 <span style={{ color: tooltip.props.color as string }}>{tooltip.props.alert as string}</span></div>
+                <div>
+                  최대풍속 {tooltip.props.wind_kt != null ? `${tooltip.props.wind_kt}kt` : '—'}
+                  {' · '}강풍반경 {tooltip.props.radius_nm as number}NM
+                </div>
+              </div>
+              <div className="text-gray-600 text-[10px] pt-0.5">클릭하면 고정</div>
+            </div>
           ) : 'elevation' in tooltip.props ? (
             // Airport tooltip
             <div>
@@ -1582,27 +1636,56 @@ export default function MapView() {
                   }}
                 />
               )}
-              <span className="font-bold text-sm text-white truncate">🌋 {ashPopup.props.volcano as string}</span>
-              {!!ashPopup.props.step_label && <span className="text-gray-400 font-normal shrink-0">· {ashPopup.props.step_label as string}</span>}
+              {ashPopup.props.volcano ? (
+                <>
+                  <span className="font-bold text-sm text-white truncate">🌋 {ashPopup.props.volcano as string}</span>
+                  {!!ashPopup.props.step_label && <span className="text-gray-400 font-normal shrink-0">· {ashPopup.props.step_label as string}</span>}
+                </>
+              ) : (
+                <>
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: ashPopup.props.color as string }} />
+                  <span className="font-bold text-sm text-white truncate">🌀 {ashPopup.props.name as string}</span>
+                </>
+              )}
             </div>
             <button onClick={() => setAshPopup(null)} className="text-gray-500 hover:text-gray-200 shrink-0">
               <X size={14} />
             </button>
           </div>
           <div className="px-3 py-2 overflow-y-auto space-y-2">
-            <div className="text-gray-400 text-[11px] space-y-0.5">
-              <div>{ashPopup.props.area as string} · {ashPopup.props.vaac as string} VAAC</div>
-              {!!ashPopup.props.step_time && <div>예보시각 {ashPopup.props.step_time as string}</div>}
-              {ashPopup.props.fl_min != null && ashPopup.props.fl_max != null && (
-                <div>고도 FL{Math.round((ashPopup.props.fl_min as number) / 100)} – FL{Math.round((ashPopup.props.fl_max as number) / 100)}
-                  <span className="text-gray-500"> ({(ashPopup.props.fl_min as number).toLocaleString()}–{(ashPopup.props.fl_max as number).toLocaleString()} ft)</span>
+            {ashPopup.props.volcano ? (
+              <>
+                <div className="text-gray-400 text-[11px] space-y-0.5">
+                  <div>{ashPopup.props.area as string} · {ashPopup.props.vaac as string} VAAC</div>
+                  {!!ashPopup.props.step_time && <div>예보시각 {ashPopup.props.step_time as string}</div>}
+                  {ashPopup.props.fl_min != null && ashPopup.props.fl_max != null && (
+                    <div>고도 FL{Math.round((ashPopup.props.fl_min as number) / 100)} – FL{Math.round((ashPopup.props.fl_max as number) / 100)}
+                      <span className="text-gray-500"> ({(ashPopup.props.fl_min as number).toLocaleString()}–{(ashPopup.props.fl_max as number).toLocaleString()} ft)</span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            {!!ashPopup.props.raw_text && (
-              <pre className="text-[10px] text-gray-300 bg-gray-950 border border-gray-800 rounded p-2 whitespace-pre-wrap break-words leading-relaxed font-mono">
-                {ashPopup.props.raw_text as string}
-              </pre>
+                {!!ashPopup.props.raw_text && (
+                  <pre className="text-[10px] text-gray-300 bg-gray-950 border border-gray-800 rounded p-2 whitespace-pre-wrap break-words leading-relaxed font-mono">
+                    {ashPopup.props.raw_text as string}
+                  </pre>
+                )}
+              </>
+            ) : (
+              // 태풍 원/중심점 클릭 — 이름·경보단계·풍속·강풍반경 고정 팝업
+              <div className="text-gray-400 text-[11px] space-y-1">
+                <div>
+                  경보단계 <span className="font-semibold" style={{ color: ashPopup.props.color as string }}>
+                    {ashPopup.props.alert as string}
+                  </span>
+                </div>
+                <div>
+                  최대풍속 <span className="text-gray-200">
+                    {ashPopup.props.wind_kt != null ? `${ashPopup.props.wind_kt}kt` : '정보 없음'}
+                  </span>
+                </div>
+                <div>강풍반경 <span className="text-gray-200">{ashPopup.props.radius_nm as number}NM</span></div>
+                <div className="text-gray-600 text-[10px] pt-1">출처: GDACS · 이동경로 위 점에 마우스를 올리면 시각별 예보를 볼 수 있습니다</div>
+              </div>
             )}
           </div>
         </div>
