@@ -13,16 +13,28 @@ import type {
 
 // ─── TAF forecast computer ─────────────────────────────────────────────────
 
-interface TafState { wdir: number | null; wspd: number | null; wgst: number | null; vis_m: number | null; ceiling_ft: number | null }
+interface TempoState { wspd: number | null; wgst: number | null; vis_m: number | null; ceiling_ft: number | null }
+interface TafState {
+  wdir: number | null; wspd: number | null; wgst: number | null; vis_m: number | null; ceiling_ft: number | null
+  // 이 스냅샷 자체에 그 시각을 덮는 TEMPO 구간이 있으면 그 값 — 반드시 "이 시각에
+  // 실제로 유효했던 TAF 스냅샷" 안에서만 찾아야 함(아래 buildTafFn 참고)
+  tempo: TempoState | null
+}
 
 function buildTafFn(periods: TafPeriod[]): (timeMs: number) => TafState {
   const base = periods.find(p => p.type === 'BASE')
   const changes = periods
     .filter(p => !['BASE', 'TEMPO'].includes(p.type) && !p.type.startsWith('PROB'))
     .sort((a, b) => new Date(a.from ?? 0).getTime() - new Date(b.from ?? 0).getTime())
+  const tempos = periods
+    .filter((p): p is TafPeriod & { from: string; to: string } => p.type === 'TEMPO' && !!p.from && !!p.to)
+    .map(p => ({
+      from: new Date(p.from).getTime(), to: new Date(p.to).getTime(),
+      wspd: p.wspd, wgst: p.wgst, vis_m: p.vis_m, ceiling_ft: p.ceiling_ft,
+    }))
 
   return (timeMs: number): TafState => {
-    const s: TafState = { wdir: null, wspd: null, wgst: null, vis_m: null, ceiling_ft: null }
+    const s: TafState = { wdir: null, wspd: null, wgst: null, vis_m: null, ceiling_ft: null, tempo: null }
 
     if (base) {
       if (base.wdir !== null) s.wdir = base.wdir
@@ -58,6 +70,9 @@ function buildTafFn(periods: TafPeriod[]): (timeMs: number) => TafState {
         }
       }
     }
+
+    const t = tempos.find(t => timeMs >= t.from && timeMs <= t.to)
+    if (t) s.tempo = { wspd: t.wspd, wgst: t.wgst, vis_m: t.vis_m, ceiling_ft: t.ceiling_ft }
     return s
   }
 }
@@ -71,7 +86,7 @@ function buildTafHistoryFn(history: TafSnapshot[]): (timeMs: number) => TafState
     .map(h => ({ issueMs: new Date(h.issue_time).getTime(), fn: buildTafFn(h.periods) }))
 
   return (timeMs: number): TafState => {
-    if (evaluators.length === 0) return { wdir: null, wspd: null, wgst: null, vis_m: null, ceiling_ft: null }
+    if (evaluators.length === 0) return { wdir: null, wspd: null, wgst: null, vis_m: null, ceiling_ft: null, tempo: null }
     let chosen = evaluators[0]
     for (const e of evaluators) {
       if (e.issueMs <= timeMs) chosen = e
@@ -165,7 +180,9 @@ function buildChartData(
       taf_wspd: taf.wspd, taf_wdir: taf.wdir,
       taf_vis_m: taf.vis_m !== null ? Math.min(taf.vis_m, 9999) : null,
       taf_ceiling_ft: taf.ceiling_ft,
-      tempo_wspd: null, tempo_wgst: null, tempo_vis_m: null, tempo_ceiling_ft: null,
+      tempo_wspd: taf.tempo?.wspd ?? null, tempo_wgst: taf.tempo?.wgst ?? null,
+      tempo_vis_m: taf.tempo?.vis_m != null ? Math.min(taf.tempo.vis_m, 9999) : null,
+      tempo_ceiling_ft: taf.tempo?.ceiling_ft ?? null,
     }
   })
 
@@ -191,7 +208,9 @@ function buildChartData(
           taf_wspd: taf.wspd, taf_wdir: taf.wdir,
           taf_vis_m: taf.vis_m !== null ? Math.min(taf.vis_m, 9999) : null,
           taf_ceiling_ft: taf.ceiling_ft,
-          tempo_wspd: null, tempo_wgst: null, tempo_vis_m: null, tempo_ceiling_ft: null,
+          tempo_wspd: taf.tempo?.wspd ?? null, tempo_wgst: taf.tempo?.wgst ?? null,
+          tempo_vis_m: taf.tempo?.vis_m != null ? Math.min(taf.tempo.vis_m, 9999) : null,
+          tempo_ceiling_ft: taf.tempo?.ceiling_ft ?? null,
         })
       }
       result = [...past, ...future]
@@ -199,29 +218,31 @@ function buildChartData(
   }
 
   if (tempoRanges && tempoRanges.length > 0) {
-    // 구간 시작·끝 경계점을 끼워 넣어서 정확히 그 시각에 선이 시작/끝나게 함
+    // 구간 시작·끝 경계 시각에 이미 포인트가 없으면 끼워 넣어서 정확히 그 시각에
+    // 선이 시작/끝나게 함. 값은 tempoRanges(과거·현재 TAF를 합친 원시 목록)에서
+    // 직접 가져오지 않고, 그 시각에 실제로 유효했던 TAF 스냅샷을 다시 골라(getTafPast)
+    // 그 스냅샷 안의 TEMPO만 읽음 — 그렇지 않으면 이미 갱신돼서 더 안 맞는
+    // 예전 TAF의 TEMPO가 우연히 겹친다는 이유만으로 새 TAF의 TEMPO 값을
+    // 덮어써버리는 문제가 있었음(예: 이전 발표 TAF의 넓은 TEMPO 구간이, 그
+    // 자리를 대체한 최신 TAF의 실제 TEMPO 시정값을 가려버림)
+    const existing = new Set(result.map(p => p.t))
+    const boundaryTimes = new Set<number>()
+    for (const r of tempoRanges) { boundaryTimes.add(r.from); boundaryTimes.add(r.to) }
     const tempoPoints: ChartPoint[] = []
-    for (const r of tempoRanges) {
-      for (const t of [r.from, r.to]) {
-        tempoPoints.push({
-          time: new Date(t).toISOString(), t,
-          wspd: null, wgst: null, wdir: null, vis_m: null, ceiling_ft: null,
-          temp_c: null, dewpoint_c: null, qnh_hpa: null,
-          taf_wspd: null, taf_wdir: null, taf_vis_m: null, taf_ceiling_ft: null,
-          tempo_wspd: null, tempo_wgst: null, tempo_vis_m: null, tempo_ceiling_ft: null,
-        })
-      }
+    for (const t of boundaryTimes) {
+      if (existing.has(t)) continue
+      const taf = getTafPast(t)
+      tempoPoints.push({
+        time: new Date(t).toISOString(), t,
+        wspd: null, wgst: null, wdir: null, vis_m: null, ceiling_ft: null,
+        temp_c: null, dewpoint_c: null, qnh_hpa: null,
+        taf_wspd: null, taf_wdir: null, taf_vis_m: null, taf_ceiling_ft: null,
+        tempo_wspd: taf.tempo?.wspd ?? null, tempo_wgst: taf.tempo?.wgst ?? null,
+        tempo_vis_m: taf.tempo?.vis_m != null ? Math.min(taf.tempo.vis_m, 9999) : null,
+        tempo_ceiling_ft: taf.tempo?.ceiling_ft ?? null,
+      })
     }
     result = [...result, ...tempoPoints].sort((a, b) => a.t - b.t)
-
-    // 경계점만 채우면 그 사이에 낀 실측 관측점들이 tempo_*=null이라 선이 뚝뚝
-    // 끊겨서 점 두 개짜리로 보임(connectNulls 없이는 안 이어짐) — 구간 안의
-    // 모든 점을 다 채워야 하나로 이어진 수평선이 됨
-    result = result.map(p => {
-      const r = tempoRanges.find(r => p.t >= r.from && p.t <= r.to)
-      if (!r) return p
-      return { ...p, tempo_wspd: r.wspd, tempo_wgst: r.wgst, tempo_vis_m: r.vis_m, tempo_ceiling_ft: r.ceiling_ft }
-    })
   }
 
   return result
