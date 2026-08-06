@@ -56,6 +56,23 @@ export interface GeoJSONFeatureCollection {
   features: GeoJSONFeature[]
 }
 
+// FOIS(국토부 항공정보포털)에 실제 제출된 ATC 비행계획 기준 출발 스케줄 — 항공사 무관,
+// 우리 항로 DB 저장 여부와도 무관하게 그 구간으로 그날 실제 신청된 편 그대로
+export interface FoisFlight {
+  callsign: string
+  ac_type: string | null
+  reg: string | null
+  sched_time: string | null
+  etd: string | null
+  atd: string | null
+  dep_status: string | null
+  nature: string | null
+  sta: string | null
+  eta: string | null
+  ata: string | null
+  ams_rec_pk: number | null
+}
+
 export interface GeoJSONFeature {
   type: 'Feature'
   geometry: {

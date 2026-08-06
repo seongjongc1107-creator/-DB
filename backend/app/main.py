@@ -48,6 +48,9 @@ app.include_router(curfew_module.router, prefix="/api/curfew", tags=["curfew"])
 from .routers import traffic as traffic_module
 app.include_router(traffic_module.router, prefix="/api/traffic", tags=["traffic"])
 
+from .routers import fois as fois_module
+app.include_router(fois_module.router, prefix="/api/fois", tags=["fois"])
+
 
 @app.get("/api/health")
 def health():
