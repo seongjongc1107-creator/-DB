@@ -19,7 +19,7 @@ const TABS: { id: AirportTab; label: string }[] = [
   { id: 'weather',  label: '기상' },
   { id: 'runway',   label: '활주로' },
   { id: 'approach', label: '접근절차' },
-  { id: 'schedule', label: '스케줄' },
+  { id: 'schedule', label: '출/도착 조회' },
 ]
 
 function formatTaf(raw: string): string {
