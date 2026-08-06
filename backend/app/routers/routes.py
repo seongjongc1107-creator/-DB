@@ -37,7 +37,7 @@ def _route_feature(r):
     return {
         "type": "Feature",
         "geometry": {"type": "LineString", "coordinates": r.coordinates},
-        "properties": {**_route_meta(r), "waypoints": _waypoints_from_fixes(r.passed_fixes)},
+        "properties": {**_route_meta(r), "waypoints": _waypoints_from_fixes(r.passed_fixes), "legs": r.legs},
     }
 
 
@@ -97,7 +97,7 @@ def get_alternatives(
 def parse_route_string(route: str = Query(..., description="공백으로 구분된 항로 문자열, 예: RKSI Y711 GTC DCT RKSS")):
     """SkyVector처럼 직접 입력한 항로 문자열을 그 자리에서 파싱해 geometry로 반환 (저장된 항로 DB 조회 아님)."""
     tokens = route.strip().upper().split()
-    coords, passed_fixes, airway_gaps = store.resolve_route_tokens(tokens)
+    coords, passed_fixes, airway_gaps, legs = store.resolve_route_tokens(tokens)
     if len(coords) < 2:
         return {"type": "FeatureCollection", "features": [], "unresolved": tokens, "airway_gaps": []}
     resolved_names = set(passed_fixes) | {tokens[0], tokens[-1]}
@@ -108,7 +108,7 @@ def parse_route_string(route: str = Query(..., description="공백으로 구분�
         "features": [{
             "type": "Feature",
             "geometry": {"type": "LineString", "coordinates": coords},
-            "properties": {"route": route.strip().upper(), "waypoints": _waypoints_from_fixes(passed_fixes)},
+            "properties": {"route": route.strip().upper(), "waypoints": _waypoints_from_fixes(passed_fixes), "legs": legs},
         }],
         "airway_gaps": airway_gaps,
         "unresolved": unresolved,

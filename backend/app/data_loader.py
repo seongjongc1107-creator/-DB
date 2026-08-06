@@ -100,6 +100,9 @@ class Route:
     # waypoint 검색(route_by_token)이 이걸 놓치면 "W4를 타는 항로"는 찾아도
     # "W4 안의 FATAN을 지나는 항로"는 못 찾는 문제가 생김.
     passed_fixes: Dict[str, List[float]] = field(default_factory=dict)  # fix name → resolved [lon, lat]
+    # 지도에 항로명(Y697 등) 라벨을 찍기 위한 구간별 대표 좌표. 각 원소는
+    # {"airway": 이름(SID/STAR/항공로/"DCT"), "lon":, "lat":} — 그 구간의 중점.
+    legs: List[Dict[str, object]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +170,14 @@ def _gc_km(a: List[float], b: List[float]) -> float:
     dlon, dlat = lon2 - lon1, lat2 - lat1
     x = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     return 6371 * 2 * math.asin(min(1.0, math.sqrt(x)))
+
+
+def _leg_point(start: Optional[List[float]], end: List[float]) -> Dict[str, float]:
+    """Label anchor for one route leg — midpoint of start→end, or end itself if
+    there's no previous point (first leg of the route)."""
+    if start is None:
+        return {"lon": end[0], "lat": end[1]}
+    return {"lon": (start[0] + end[0]) / 2, "lat": (start[1] + end[1]) / 2}
 
 
 def _fix_antimeridian(coords: List[List[float]]) -> List[List[float]]:
@@ -571,11 +582,12 @@ class NavDataStore:
                 return candidate
         return None
 
-    def resolve_route_tokens(self, tokens: List[str]) -> Tuple[List[List[float]], Dict[str, List[float]], List[str]]:
+    def resolve_route_tokens(self, tokens: List[str]) -> Tuple[List[List[float]], Dict[str, List[float]], List[str], List[Dict[str, object]]]:
         """Resolve a route-string token list (fix/airway/DCT/SID/STAR, whitespace-split)
         into a coordinate path + the set of named fixes actually passed through +
         a list of "WAYPOINT AIRWAY WAYPOINT" legs where the named airway doesn't
-        actually connect those two fixes (silently falls back to a direct line).
+        actually connect those two fixes (silently falls back to a direct line) +
+        per-leg label anchors (airway/procedure name + midpoint) for map display.
 
         Shared by both stored Navblue routes (_resolve_geometries) and the ad-hoc
         "type a route string" feature — same parsing rules either way.
@@ -583,8 +595,9 @@ class NavDataStore:
         raw: List[List[float]] = []
         passed_fixes: Dict[str, List[float]] = {}
         airway_gaps: List[str] = []
+        legs: List[Dict[str, object]] = []
         if not tokens:
-            return raw, passed_fixes, airway_gaps
+            return raw, passed_fixes, airway_gaps, legs
 
         # Pre-compute max allowable single-leg distance:
         # use 1.5× the direct OD distance, with a floor of 2000 km
@@ -633,6 +646,7 @@ class NavDataStore:
                 if pts is not None:
                     raw.extend(pts)
                     if pts:
+                        legs.append({"airway": token, **_leg_point(ref, pts[-1])})
                         ref = pts[-1][:]
                         ref_name = None  # procedure endpoint isn't a named fix
                     expect_connector = False
@@ -651,6 +665,7 @@ class NavDataStore:
             proc_pts = self._lookup_procedure(token, near=ref) if (is_sid_pos or is_star_pos) else None
             if proc_pts is not None:
                 raw.extend(proc_pts)
+                legs.append({"airway": token, **_leg_point(ref, proc_pts[-1])})
                 ref = proc_pts[-1][:]
                 ref_name = None
                 pending_airway = None
@@ -668,6 +683,7 @@ class NavDataStore:
                 # though it's not in the usual SID/STAR slot — better than dropping
                 # the token entirely.
                 raw.extend(pts)
+                legs.append({"airway": token, **_leg_point(ref, pts[-1])})
                 ref = pts[-1][:]
                 ref_name = None
                 pending_airway = None
@@ -695,10 +711,12 @@ class NavDataStore:
                 self._expand_airway(pending_airway, ref_name, token)
                 if pending_airway and ref_name else None
             )
+            leg_start = ref[:] if ref is not None else None
             if expanded and len(expanded) > 2:
                 raw.extend([[f.lon, f.lat] for f in expanded[1:]])
                 ref = [expanded[-1].lon, expanded[-1].lat]
                 passed_fixes.update({f.fix: [f.lon, f.lat] for f in expanded})
+                legs.append({"airway": pending_airway, **_leg_point(leg_start, ref)})
             else:
                 if pending_airway and ref_name and expanded is None:
                     # 항공로 이름은 유효하지만 이 두 fix를 실제로 잇지는 않음 — 직선으로 대체됨
@@ -706,15 +724,16 @@ class NavDataStore:
                 raw.append(chosen[:])
                 ref = chosen
                 passed_fixes[token] = chosen[:]
+                legs.append({"airway": pending_airway or "DCT", **_leg_point(leg_start, ref)})
             ref_name = token
             pending_airway = None
             expect_connector = True
 
-        return _fix_antimeridian(raw), passed_fixes, airway_gaps
+        return _fix_antimeridian(raw), passed_fixes, airway_gaps, legs
 
     def _resolve_geometries(self) -> None:
         for route in self.routes:
-            route.coordinates, route.passed_fixes, _ = self.resolve_route_tokens(route.tokens)
+            route.coordinates, route.passed_fixes, _, route.legs = self.resolve_route_tokens(route.tokens)
 
     def _build_route_indexes(self) -> None:
         for route in self.routes:

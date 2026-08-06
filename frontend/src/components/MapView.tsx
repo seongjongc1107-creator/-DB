@@ -74,6 +74,10 @@ function addPlaneIcons(map: import('maplibre-gl').Map) {
 
 const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] }
 
+// 선택/직접입력 항로의 구간별 항로명 라벨 색 — 실제 항공로(Y697 등)는 도드라지게,
+// 이름 없는 직선 구간(DCT)은 덜 눈에 띄게 회색으로 구분
+const LEG_LABEL_COLOR: any = ['match', ['get', 'airway'], 'DCT', '#9CA3AF', '#67e8f9']
+
 // 화산재 구역 시간대 — 색은 신호등처럼 OBS(빨강, 가장 급함)부터 +18h(옅은 노랑)까지
 const ASH_STEP_INDEX: Record<string, number> = { OBS: 0, '+6HR': 1, '+12HR': 2, '+18HR': 3 }
 const ASH_STEP_COLOR: any = [
@@ -828,6 +832,33 @@ export default function MapView() {
     return { type: 'FeatureCollection' as const, features }
   }, [adhocRouteData])
 
+  // ── 선택된 항로의 구간별 항로명(Y697 등) 라벨 — 백엔드가 각 구간 중점에 미리
+  // 계산해둔 좌표(legs)를 그대로 점으로 찍어서 심볼 라벨만 얹음 ──
+  const selectedRouteLegsData = useMemo(() => {
+    const features = selectedRouteHighlightData.features.flatMap(f => {
+      const legs = (f.properties?.legs as { airway: string; lon: number; lat: number }[] | undefined) ?? []
+      return legs.map(l => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [l.lon, l.lat] },
+        properties: { airway: l.airway },
+      }))
+    })
+    return { type: 'FeatureCollection' as const, features }
+  }, [selectedRouteHighlightData])
+
+  // ── 직접 입력한 항로의 구간별 항로명 라벨 ──
+  const adhocRouteLegsData = useMemo(() => {
+    const features = adhocRouteData.features.flatMap(f => {
+      const legs = (f.properties?.legs as { airway: string; lon: number; lat: number }[] | undefined) ?? []
+      return legs.map(l => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [l.lon, l.lat] },
+        properties: { airway: l.airway },
+      }))
+    })
+    return { type: 'FeatureCollection' as const, features }
+  }, [adhocRouteData])
+
   // ── 항로 목록(우클릭 메뉴/사이드바) 호버 강조 ──
   const hoveredRouteData = useMemo(() => {
     if (state.hoveredRouteId === null) return EMPTY_FC
@@ -1118,6 +1149,23 @@ export default function MapView() {
               'text-allow-overlap': false,
             }}
             paint={{ 'text-color': '#FDBA74', 'text-halo-color': '#111827', 'text-halo-width': 0.8 }}
+          />
+        </Source>
+
+        {/* ── 선택된 항로의 구간별 항로명(Y697 등) 라벨 — waypoint 사이사이가 어느
+            항공로인지 지도에서 바로 읽을 수 있게 ── */}
+        <Source id="selected-route-legs" type="geojson" data={selectedRouteLegsData}>
+          <Layer
+            id="selected-route-legs-label"
+            type="symbol"
+            layout={{
+              'text-field': ['get', 'airway'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 10,
+              'text-anchor': 'center',
+              'text-allow-overlap': false,
+            }}
+            paint={{ 'text-color': LEG_LABEL_COLOR, 'text-halo-color': '#111827', 'text-halo-width': 1 }}
           />
         </Source>
 
@@ -1493,6 +1541,22 @@ export default function MapView() {
               'text-allow-overlap': false,
             }}
             paint={{ 'text-color': '#d8b4fe', 'text-halo-color': '#111827', 'text-halo-width': 0.8 }}
+          />
+        </Source>
+
+        {/* ── 직접 입력한 항로의 구간별 항로명 라벨 ── */}
+        <Source id="adhoc-route-legs" type="geojson" data={adhocRouteLegsData}>
+          <Layer
+            id="adhoc-route-legs-label"
+            type="symbol"
+            layout={{
+              'text-field': ['get', 'airway'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 10,
+              'text-anchor': 'center',
+              'text-allow-overlap': false,
+            }}
+            paint={{ 'text-color': LEG_LABEL_COLOR, 'text-halo-color': '#111827', 'text-halo-width': 1 }}
           />
         </Source>
       </Map>
