@@ -172,12 +172,23 @@ def _gc_km(a: List[float], b: List[float]) -> float:
     return 6371 * 2 * math.asin(min(1.0, math.sqrt(x)))
 
 
-def _leg_point(start: Optional[List[float]], end: List[float]) -> Dict[str, float]:
-    """Label anchor for one route leg — midpoint of start→end, or end itself if
-    there's no previous point (first leg of the route)."""
-    if start is None:
-        return {"lon": end[0], "lat": end[1]}
-    return {"lon": (start[0] + end[0]) / 2, "lat": (start[1] + end[1]) / 2}
+def _leg_point(points: List[List[float]]) -> Dict[str, float]:
+    """Label anchor for one route leg — the midpoint *along the polyline*
+    (by vertex count), not the straight-line average of its endpoints, so the
+    label lands exactly on the rendered line even when the leg bends through
+    several published fixes (long airway legs) instead of floating off to
+    the side of the bend."""
+    if not points:
+        return {"lon": 0.0, "lat": 0.0}
+    if len(points) == 1:
+        return {"lon": points[0][0], "lat": points[0][1]}
+    mid = (len(points) - 1) / 2
+    lo, frac = int(mid), mid - int(mid)
+    hi = min(lo + 1, len(points) - 1)
+    return {
+        "lon": points[lo][0] + (points[hi][0] - points[lo][0]) * frac,
+        "lat": points[lo][1] + (points[hi][1] - points[lo][1]) * frac,
+    }
 
 
 def _fix_antimeridian(coords: List[List[float]]) -> List[List[float]]:
@@ -646,7 +657,8 @@ class NavDataStore:
                 if pts is not None:
                     raw.extend(pts)
                     if pts:
-                        legs.append({"airway": token, **_leg_point(ref, pts[-1])})
+                        leg_pts = ([ref] if ref is not None else []) + pts
+                        legs.append({"airway": token, **_leg_point(leg_pts)})
                         ref = pts[-1][:]
                         ref_name = None  # procedure endpoint isn't a named fix
                     expect_connector = False
@@ -665,7 +677,8 @@ class NavDataStore:
             proc_pts = self._lookup_procedure(token, near=ref) if (is_sid_pos or is_star_pos) else None
             if proc_pts is not None:
                 raw.extend(proc_pts)
-                legs.append({"airway": token, **_leg_point(ref, proc_pts[-1])})
+                leg_pts = ([ref] if ref is not None else []) + proc_pts
+                legs.append({"airway": token, **_leg_point(leg_pts)})
                 ref = proc_pts[-1][:]
                 ref_name = None
                 pending_airway = None
@@ -683,7 +696,8 @@ class NavDataStore:
                 # though it's not in the usual SID/STAR slot — better than dropping
                 # the token entirely.
                 raw.extend(pts)
-                legs.append({"airway": token, **_leg_point(ref, pts[-1])})
+                leg_pts = ([ref] if ref is not None else []) + pts
+                legs.append({"airway": token, **_leg_point(leg_pts)})
                 ref = pts[-1][:]
                 ref_name = None
                 pending_airway = None
@@ -716,7 +730,7 @@ class NavDataStore:
                 raw.extend([[f.lon, f.lat] for f in expanded[1:]])
                 ref = [expanded[-1].lon, expanded[-1].lat]
                 passed_fixes.update({f.fix: [f.lon, f.lat] for f in expanded})
-                legs.append({"airway": pending_airway, **_leg_point(leg_start, ref)})
+                legs.append({"airway": pending_airway, **_leg_point([[f.lon, f.lat] for f in expanded])})
             else:
                 if pending_airway and ref_name and expanded is None:
                     # 항공로 이름은 유효하지만 이 두 fix를 실제로 잇지는 않음 — 직선으로 대체됨
@@ -724,7 +738,8 @@ class NavDataStore:
                 raw.append(chosen[:])
                 ref = chosen
                 passed_fixes[token] = chosen[:]
-                legs.append({"airway": pending_airway or "DCT", **_leg_point(leg_start, ref)})
+                leg_pts = ([leg_start] if leg_start is not None else []) + [chosen]
+                legs.append({"airway": pending_airway or "DCT", **_leg_point(leg_pts)})
             ref_name = token
             pending_airway = None
             expect_connector = True
