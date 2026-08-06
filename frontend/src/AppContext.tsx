@@ -64,6 +64,7 @@ const initialState: AppState = {
   selectedAirportIcao: null,
   weatherConfig: loadConfig(),
   thresholdModalTarget: null,
+  foisOverlayRoutes: {},
 }
 
 function reducer(state: AppState, action: AppAction): AppState {
@@ -294,6 +295,18 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, thresholdModalTarget: action.payload }
     case 'CLOSE_THRESHOLD_MODAL':
       return { ...state, thresholdModalTarget: null }
+    case 'ADD_FOIS_OVERLAY_ROUTE':
+      return {
+        ...state,
+        foisOverlayRoutes: { ...state.foisOverlayRoutes, [action.payload.ams_rec_pk]: action.payload },
+      }
+    case 'REMOVE_FOIS_OVERLAY_ROUTE': {
+      const next = { ...state.foisOverlayRoutes }
+      delete next[action.payload]
+      return { ...state, foisOverlayRoutes: next }
+    }
+    case 'CLEAR_FOIS_OVERLAY_ROUTES':
+      return { ...state, foisOverlayRoutes: {} }
     default:
       return state
   }

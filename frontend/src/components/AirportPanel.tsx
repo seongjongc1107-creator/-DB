@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { X, RefreshCw, SlidersHorizontal, Moon, TrendingUp } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { X, RefreshCw, SlidersHorizontal, Moon, TrendingUp, Route, Loader2 } from 'lucide-react'
 import { useApp } from '../AppContext'
-import type { AirportTab, ApproachProc, CurfewInfo, RunwayInfo, WeatherLevel, WeatherThresholds } from '../types'
+import type { AirportTab, ApproachProc, CurfewInfo, FoisFlight, RunwayInfo, WeatherLevel, WeatherThresholds } from '../types'
 import { api } from '../api/client'
 import { classifyLevel, getThresholds, highlightSegments, type TextSegment } from '../lib/weatherClassify'
+import { airlineColor } from '../lib/airlineColors'
 import WeatherTrendModal from './WeatherTrendModal'
 
 // ── shared helpers ──────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ const TABS: { id: AirportTab; label: string }[] = [
   { id: 'weather',  label: '기상' },
   { id: 'runway',   label: '활주로' },
   { id: 'approach', label: '접근절차' },
+  { id: 'schedule', label: '스케줄' },
 ]
 
 function formatTaf(raw: string): string {
@@ -158,6 +160,171 @@ function ApproachTab({ approaches }: { approaches: ApproachProc[] }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// ── 스케줄 탭 — FOIS(국토부) 실제 제출 ATC 비행계획 기준, 이 공항을 출발/도착하는
+// 오늘의 전 항공사 스케줄. 저장된 Navblue 항로 DB와 무관하게 실제 신청분 그대로.
+// 행 끝의 버튼으로 그 편의 실제 항로를 지도에 오버레이(다시 누르면 해제) ──────────
+
+type FoisSection = { loading: boolean; flights: FoisFlight[]; error?: string }
+
+// FOIS 시각은 KST("HHMM")로 옴 — 항공 운항 관행대로 UTC(Zulu)로 바꿔서 표시.
+// 날짜는 안 넘겨받으니 자정을 넘어가면(KST 00:00~08:59) 전날 UTC로 넘어간다는
+// 것만 "(-1)"로 짧게 표기 — 정확한 날짜 연산이 아니라 오해 방지용 힌트
+function kstToUtc(t: string | null): string {
+  if (!t || t.length !== 4) return '—'
+  const h = parseInt(t.slice(0, 2), 10)
+  const m = t.slice(2)
+  const utcH = ((h - 9) + 24) % 24
+  const rollsBack = h - 9 < 0
+  return `${String(utcH).padStart(2, '0')}:${m}${rollsBack ? ' (-1)' : ''}`
+}
+
+function ScheduleRows({
+  flights, otherAirport, timeOf, overlayIds, rowStatus, onToggleOverlay,
+}: {
+  flights: FoisFlight[]
+  otherAirport: (f: FoisFlight) => string
+  timeOf: (f: FoisFlight) => string | null
+  overlayIds: Set<number>
+  rowStatus: Record<number, 'loading' | 'error'>
+  onToggleOverlay: (f: FoisFlight) => void
+}) {
+  if (flights.length === 0) {
+    return <p className="text-[11px] text-gray-600 py-2">오늘 신청된 편 없음</p>
+  }
+  return (
+    <div className="max-h-52 overflow-y-auto space-y-0.5 pr-1">
+      {flights.map(f => {
+        const pk = f.ams_rec_pk
+        const status = pk != null ? rowStatus[pk] : undefined
+        const overlaid = pk != null && overlayIds.has(pk)
+        return (
+          <div key={pk ?? f.callsign} className="flex items-center gap-2 text-[11px] py-0.5">
+            <span className="font-mono text-gray-300 shrink-0 w-16 truncate">{f.callsign}</span>
+            <span className="font-mono text-gray-500 shrink-0 w-10">{otherAirport(f)}</span>
+            <span className="text-gray-500 shrink-0 whitespace-nowrap">
+              {kstToUtc(timeOf(f))} <span className="text-gray-700">UTC</span>
+            </span>
+            {f.dep_status === 'DLA' && (
+              <span className="text-[9px] px-1 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-700 shrink-0">지연</span>
+            )}
+            <span className="flex-1" />
+            <button
+              onClick={() => onToggleOverlay(f)}
+              disabled={pk == null || status === 'loading'}
+              title={overlaid ? '오버레이 해제' : '지도에 항로 오버레이'}
+              className={`shrink-0 p-1 rounded transition-colors ${
+                overlaid ? 'text-cyan-400 hover:text-cyan-300'
+                  : status === 'error' ? 'text-red-500 hover:text-red-400'
+                  : 'text-gray-600 hover:text-gray-300'
+              }`}
+            >
+              {status === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <Route size={12} />}
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ScheduleTab({ icao }: { icao: string }) {
+  const { state, dispatch } = useApp()
+  const [dep, setDep] = useState<FoisSection>({ loading: true, flights: [] })
+  const [arr, setArr] = useState<FoisSection>({ loading: true, flights: [] })
+  const [rowStatus, setRowStatus] = useState<Record<number, 'loading' | 'error'>>({})
+
+  useEffect(() => {
+    setDep({ loading: true, flights: [] })
+    api.fois.schedule({ dep: icao })
+      .then(res => setDep({ loading: false, flights: res.flights, error: res.error }))
+      .catch(() => setDep({ loading: false, flights: [], error: '조회 실패' }))
+    setArr({ loading: true, flights: [] })
+    api.fois.schedule({ arr: icao })
+      .then(res => setArr({ loading: false, flights: res.flights, error: res.error }))
+      .catch(() => setArr({ loading: false, flights: [], error: '조회 실패' }))
+  }, [icao])
+
+  const overlayIds = new Set(Object.keys(state.foisOverlayRoutes).map(Number))
+
+  async function toggleOverlay(f: FoisFlight) {
+    if (f.ams_rec_pk == null) return
+    const pk = f.ams_rec_pk
+    if (overlayIds.has(pk)) {
+      dispatch({ type: 'REMOVE_FOIS_OVERLAY_ROUTE', payload: pk })
+      return
+    }
+    setRowStatus(s => ({ ...s, [pk]: 'loading' }))
+    try {
+      const res = await api.fois.route(pk)
+      if (res.error || !res.coordinates) {
+        setRowStatus(s => ({ ...s, [pk]: 'error' }))
+        return
+      }
+      dispatch({
+        type: 'ADD_FOIS_OVERLAY_ROUTE',
+        payload: {
+          ams_rec_pk: pk, callsign: f.callsign,
+          dep: f.dep ?? res.dep ?? '', arr: f.arr ?? res.arr ?? '',
+          coordinates: res.coordinates, legs: res.legs ?? [], waypoints: res.waypoints ?? [],
+          color: airlineColor(f.callsign),
+        },
+      })
+      setRowStatus(s => { const n = { ...s }; delete n[pk]; return n })
+    } catch {
+      setRowStatus(s => ({ ...s, [pk]: 'error' }))
+    }
+  }
+
+  const overlayCount = Object.keys(state.foisOverlayRoutes).length
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <div className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">
+          출발편 {!dep.loading && `(${dep.flights.length})`}
+        </div>
+        {dep.loading ? (
+          <p className="text-[11px] text-gray-600 py-2">불러오는 중…</p>
+        ) : dep.error ? (
+          <p className="text-[11px] text-red-400 py-2">조회 실패 ({dep.error})</p>
+        ) : (
+          <ScheduleRows
+            flights={dep.flights} otherAirport={f => f.arr ?? '—'} timeOf={f => f.etd ?? f.sched_time}
+            overlayIds={overlayIds} rowStatus={rowStatus} onToggleOverlay={toggleOverlay}
+          />
+        )}
+      </div>
+
+      <div>
+        <div className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">
+          도착편 {!arr.loading && `(${arr.flights.length})`}
+        </div>
+        {arr.loading ? (
+          <p className="text-[11px] text-gray-600 py-2">불러오는 중…</p>
+        ) : arr.error ? (
+          <p className="text-[11px] text-red-400 py-2">조회 실패 ({arr.error})</p>
+        ) : (
+          <ScheduleRows
+            flights={arr.flights} otherAirport={f => f.dep ?? '—'} timeOf={f => f.eta ?? f.sta}
+            overlayIds={overlayIds} rowStatus={rowStatus} onToggleOverlay={toggleOverlay}
+          />
+        )}
+      </div>
+
+      {overlayCount > 0 && (
+        <button
+          onClick={() => dispatch({ type: 'CLEAR_FOIS_OVERLAY_ROUTES' })}
+          className="w-full text-[10px] text-cyan-400 hover:text-cyan-300 border border-cyan-800 rounded py-1.5 transition-colors"
+        >
+          지도 오버레이 모두 지우기 ({overlayCount})
+        </button>
+      )}
+
+      <p className="text-[9px] text-gray-600">출처: FOIS(국토교통부) 실제 제출 ATC 비행계획</p>
     </div>
   )
 }
@@ -333,6 +500,9 @@ export default function AirportPanel() {
             <ApproachTab approaches={detail?.approaches ?? []} />
           )
         )}
+
+        {/* 스케줄 */}
+        {tab === 'schedule' && <ScheduleTab icao={icaoStr} />}
 
       </div>
     </div>

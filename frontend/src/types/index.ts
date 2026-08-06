@@ -56,10 +56,12 @@ export interface GeoJSONFeatureCollection {
   features: GeoJSONFeature[]
 }
 
-// FOIS(국토부 항공정보포털)에 실제 제출된 ATC 비행계획 기준 출발 스케줄 — 항공사 무관,
-// 우리 항로 DB 저장 여부와도 무관하게 그 구간으로 그날 실제 신청된 편 그대로
+// FOIS(국토부 항공정보포털)에 실제 제출된 ATC 비행계획 기준 스케줄 — 항공사 무관,
+// 우리 항로 DB 저장 여부와도 무관하게 그날 실제 신청된 편 그대로
 export interface FoisFlight {
   callsign: string
+  dep: string | null
+  arr: string | null
   ac_type: string | null
   reg: string | null
   sched_time: string | null
@@ -71,6 +73,31 @@ export interface FoisFlight {
   eta: string | null
   ata: string | null
   ams_rec_pk: number | null
+}
+
+// 특정 편의 실제 제출 FPL을 파싱한 항로 — 지도 오버레이용
+export interface FoisRoute {
+  dep?: string
+  arr?: string
+  coordinates?: [number, number][]
+  legs?: { airway: string; coords: [number, number][] }[]
+  waypoints?: { id: string; lon: number; lat: number }[]
+  airway_gaps?: string[]
+  route_raw?: string
+  error?: string
+}
+
+// 지도에 오버레이 중인 FOIS 실제 항로 — ams_rec_pk로 키잉해서 편별 토글.
+// color는 항공사 CI 색(lib/airlineColors)으로 지정해서 어느 항공사인지 한눈에 구분되게 함
+export interface FoisOverlayRoute {
+  ams_rec_pk: number
+  callsign: string
+  dep: string
+  arr: string
+  coordinates: [number, number][]
+  legs: { airway: string; coords: [number, number][] }[]
+  waypoints: { id: string; lon: number; lat: number }[]
+  color: string
 }
 
 export interface GeoJSONFeature {
@@ -112,7 +139,7 @@ export interface CurfewInfo {
   note: string
 }
 
-export type AirportTab = 'weather' | 'runway' | 'approach'
+export type AirportTab = 'weather' | 'runway' | 'approach' | 'schedule'
 
 export interface RunwayInfo {
   id: string
@@ -365,6 +392,8 @@ export interface AppState {
   selectedAirportIcao: string | null
   weatherConfig: WeatherConfig
   thresholdModalTarget: string | null  // null=닫힘, 'defaults'=전체기본값, ICAO=공항별
+  // FOIS 실제 제출 항로 지도 오버레이 — ams_rec_pk로 키잉, 공항 패널 스케줄 탭에서 편별 토글
+  foisOverlayRoutes: Record<number, FoisOverlayRoute>
 }
 
 export type AppAction =
@@ -428,3 +457,6 @@ export type AppAction =
   | { type: 'RESET_AIRPORT_THRESHOLDS'; payload: string }
   | { type: 'OPEN_THRESHOLD_MODAL'; payload: string }
   | { type: 'CLOSE_THRESHOLD_MODAL' }
+  | { type: 'ADD_FOIS_OVERLAY_ROUTE'; payload: FoisOverlayRoute }
+  | { type: 'REMOVE_FOIS_OVERLAY_ROUTE'; payload: number }
+  | { type: 'CLEAR_FOIS_OVERLAY_ROUTES' }

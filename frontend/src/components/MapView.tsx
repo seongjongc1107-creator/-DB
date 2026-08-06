@@ -570,6 +570,46 @@ export default function MapView() {
   const adhocRouteData = state.adhocRouteGeoJSON ?? EMPTY_FC
   const selectedIds = state.selectedRouteIds
 
+  // ── FOIS 실제 제출 항로 오버레이 — 공항 패널 스케줄 탭에서 편별로 켠 것들.
+  // 색은 항공사 CI색(편별로 이미 계산돼서 state에 들어있음)을 그대로 씀 ──
+  const foisOverlayData = useMemo(() => {
+    const routes = Object.values(state.foisOverlayRoutes)
+    if (routes.length === 0) return EMPTY_FC
+    return {
+      type: 'FeatureCollection' as const,
+      features: routes.map(r => ({
+        type: 'Feature' as const,
+        geometry: { type: 'LineString' as const, coordinates: r.coordinates },
+        properties: { ams_rec_pk: r.ams_rec_pk, callsign: r.callsign, dep: r.dep, arr: r.arr, color: r.color },
+      })),
+    }
+  }, [state.foisOverlayRoutes])
+
+  // ── FOIS 오버레이 항로가 지나는 waypoint — 선택한 Navblue 항로와 동일한 표시 방식 ──
+  const foisOverlayWaypointsData = useMemo(() => {
+    const routes = Object.values(state.foisOverlayRoutes)
+    const features = routes.flatMap(r => r.waypoints.map(w => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [w.lon, w.lat] },
+      properties: { id: w.id, color: r.color },
+    })))
+    return { type: 'FeatureCollection' as const, features }
+  }, [state.foisOverlayRoutes])
+
+  // ── FOIS 오버레이 항로의 구간별 항로명 라벨 — 선택한 Navblue 항로와 동일하게
+  // symbol-placement:line으로 구간을 따라 반복 표시 ──
+  const foisOverlayLegsData = useMemo(() => {
+    const routes = Object.values(state.foisOverlayRoutes)
+    const features = routes.flatMap(r => r.legs
+      .filter(l => l.coords.length >= 2)
+      .map(l => ({
+        type: 'Feature' as const,
+        geometry: { type: 'LineString' as const, coordinates: l.coords },
+        properties: { airway: l.airway, color: r.color },
+      })))
+    return { type: 'FeatureCollection' as const, features }
+  }, [state.foisOverlayRoutes])
+
   // ── Typhoon circles ──────────────────────────────────────────────
   const typhoonData = useMemo(() => {
     if (state.typhoons.length === 0) return EMPTY_FC
@@ -887,7 +927,7 @@ export default function MapView() {
           inDrawMode ? [] : [
             'routes-line-hit', 'airports-circle-hit', 'airway-line',
             'searched-routes-line', 'selected-route-line',
-            'waypoints-circle-hit', 'all-airways-line-hit',
+            'waypoints-circle-hit', 'all-airways-line-hit', 'fois-overlay-line',
             ...(state.layers.traffic ? ['traffic-icon'] : []),
             ...(state.layers.volcanicAsh ? ['volcanic-ash-fill', 'volcanic-ash-volcano-point'] : []),
             ...(state.layers.typhoon ? ['typhoon-fill', 'typhoon-center', 'typhoon-track-dots'] : []),
@@ -1566,6 +1606,78 @@ export default function MapView() {
             paint={{ 'text-color': LEG_LABEL_COLOR, 'text-halo-color': '#111827', 'text-halo-width': 1 }}
           />
         </Source>
+
+        {/* ── FOIS 실제 제출 항로 오버레이 — 공항 패널 스케줄 탭에서 편별로 켠 것들.
+            항공사 CI 색(편별 color 속성)으로 그려서 어느 항공사인지 한눈에 구분되게 ── */}
+        <Source id="fois-overlay" type="geojson" data={foisOverlayData}>
+          <Layer
+            id="fois-overlay-casing"
+            type="line"
+            paint={{ 'line-color': '#0b1220', 'line-width': 4.5, 'line-opacity': 0.85 }}
+          />
+          <Layer
+            id="fois-overlay-line"
+            type="line"
+            paint={{ 'line-color': ['get', 'color'], 'line-width': 2.2 }}
+          />
+          <Layer
+            id="fois-overlay-label"
+            type="symbol"
+            layout={{
+              'text-field': ['get', 'callsign'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 10,
+              'symbol-placement': 'line',
+              'symbol-spacing': 200,
+              'text-allow-overlap': false,
+            }}
+            paint={{ 'text-color': ['get', 'color'], 'text-halo-color': '#0b1220', 'text-halo-width': 1.2 }}
+          />
+        </Source>
+
+        {/* ── FOIS 오버레이 항로가 지나는 waypoint — 선택한 Navblue 항로와 동일한 표시 ── */}
+        <Source id="fois-overlay-waypoints" type="geojson" data={foisOverlayWaypointsData}>
+          <Layer
+            id="fois-overlay-waypoints-circle"
+            type="circle"
+            paint={{
+              'circle-radius': 3.5,
+              'circle-color': '#fff',
+              'circle-stroke-color': ['get', 'color'],
+              'circle-stroke-width': 1.5,
+            }}
+          />
+          <Layer
+            id="fois-overlay-waypoints-label"
+            type="symbol"
+            layout={{
+              'text-field': ['get', 'id'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 11,
+              'text-offset': [0, 1],
+              'text-anchor': 'top',
+              'text-allow-overlap': false,
+            }}
+            paint={{ 'text-color': ['get', 'color'], 'text-halo-color': '#0b1220', 'text-halo-width': 0.8 }}
+          />
+        </Source>
+
+        {/* ── FOIS 오버레이 항로의 구간별 항로명 라벨 — 선택한 Navblue 항로와 동일하게 ── */}
+        <Source id="fois-overlay-legs" type="geojson" data={foisOverlayLegsData}>
+          <Layer
+            id="fois-overlay-legs-label"
+            type="symbol"
+            layout={{
+              'text-field': ['get', 'airway'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 10,
+              'symbol-placement': 'line',
+              'symbol-spacing': 160,
+              'text-allow-overlap': false,
+            }}
+            paint={{ 'text-color': ['get', 'color'], 'text-halo-color': '#0b1220', 'text-halo-width': 1 }}
+          />
+        </Source>
       </Map>
 
       {/* Tooltip */}
@@ -1593,6 +1705,18 @@ export default function MapView() {
             </>
           ) : tooltip.props.airway ? (
             <div className="font-semibold text-green-400">{tooltip.props.airway as string}</div>
+          ) : tooltip.props.ams_rec_pk !== undefined ? (
+            // FOIS 실제 제출 항로 오버레이 hover
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: tooltip.props.color as string }} />
+                <span className="font-bold text-sm" style={{ color: tooltip.props.color as string }}>{tooltip.props.callsign as string}</span>
+              </div>
+              <div className="text-gray-400 text-[11px]">
+                {tooltip.props.dep as string} → {tooltip.props.arr as string}
+              </div>
+              <div className="text-gray-600 text-[10px]">FOIS 실제 제출 항로</div>
+            </div>
           ) : tooltip.props.callsign ? (
             // Aircraft tooltip
             <div className="space-y-1">

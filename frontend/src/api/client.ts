@@ -1,4 +1,4 @@
-import type { AircraftState, AirportDetail, CollectStatus, CurfewInfo, FoisFlight, GeoJSONFeatureCollection, MetarData, RouteMeta, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherTrendData } from '../types'
+import type { AircraftState, AirportDetail, CollectStatus, CurfewInfo, FoisFlight, FoisRoute, GeoJSONFeatureCollection, MetarData, RouteMeta, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherTrendData } from '../types'
 
 const BASE = '/api'
 
@@ -53,10 +53,12 @@ export const api = {
   },
   search: (q: string) => get<SearchResult[]>(`/search?q=${encodeURIComponent(q)}`),
   fois: {
-    schedule: (dep: string, arr: string) =>
-      get<{ date: string; dep: string; arr: string; count: number; flights: FoisFlight[]; error?: string }>(
-        '/fois/schedule', { dep, arr },
+    schedule: (params: { dep?: string; arr?: string }) =>
+      get<{ date: string; dep: string | null; arr: string | null; count: number; flights: FoisFlight[]; error?: string }>(
+        '/fois/schedule', params as Record<string, string>,
       ),
+    route: (amsRecPk: number) =>
+      get<FoisRoute>('/fois/route', { ams_rec_pk: String(amsRecPk) }),
   },
   typhoon: {
     active: () => get<{ source: string; count: number; typhoons: Typhoon[]; error?: string }>('/typhoon/active'),

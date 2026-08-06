@@ -1,18 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, GitCompare, MapPinned, Wind, GripHorizontal, ChevronUp, ChevronDown, StickyNote, Plane } from 'lucide-react'
+import { X, GitCompare, MapPinned, Wind, GripHorizontal, ChevronUp, ChevronDown, StickyNote } from 'lucide-react'
 import * as turf from '@turf/turf'
 import { useApp } from '../AppContext'
 import { api } from '../api/client'
 import { SELECT_COLORS } from '../lib/selectionColors'
-import type { FoisFlight, GeoJSONFeature, RouteMeta } from '../types'
-
-// FOIS 시각("HHMM") → "HH:MM"
-function fmtFoisTime(t: string | null): string {
-  if (!t || t.length !== 4) return '—'
-  return `${t.slice(0, 2)}:${t.slice(2)}`
-}
-
-type ScheduleState = { loading: boolean; flights: FoisFlight[]; error?: string }
+import type { GeoJSONFeature, RouteMeta } from '../types'
 
 // 선택 순서별 색 (사이드바/지도와 동일 팔레트 공유)
 const colorAt = (i: number) => SELECT_COLORS[i % SELECT_COLORS.length]
@@ -67,30 +59,6 @@ export default function RouteComparePanel() {
       .finally(() => setLoading(false))
     // ids 배열 참조가 매 렌더 바뀌므로 join 값으로 비교
   }, [ids.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── FOIS(국토부) 실제 제출 ATC 비행계획 기준 오늘 스케줄 — 패널을 펼쳤을 때만,
-  // OD쌍별로 한 번씩만 조회(같은 구간의 항로 번호가 여러 개 선택돼도 중복 호출 안 함) ──
-  const [schedules, setSchedules] = useState<Record<string, ScheduleState>>({})
-
-  useEffect(() => {
-    if (!expanded) return
-    const pairs = Array.from(new Set(
-      ids
-        .map(id => state.allRoutes.find(r => r.id === id))
-        .filter((m): m is RouteMeta => m != null)
-        .map(m => `${m.origin}-${m.destination}`)
-    ))
-    const missing = pairs.filter(p => !schedules[p])
-    if (missing.length === 0) return
-    missing.forEach(pair => {
-      const [dep, arr] = pair.split('-')
-      setSchedules(s => ({ ...s, [pair]: { loading: true, flights: [] } }))
-      api.fois.schedule(dep, arr)
-        .then(res => setSchedules(s => ({ ...s, [pair]: { loading: false, flights: res.flights, error: res.error } })))
-        .catch(() => setSchedules(s => ({ ...s, [pair]: { loading: false, flights: [], error: '조회 실패' } })))
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, ids.join(',')])
 
   // API 응답 순서와 무관하게 선택 순서(ids)에 맞춰 정렬
   const orderedFeatures = useMemo(() => {
@@ -265,49 +233,6 @@ export default function RouteComparePanel() {
                       ⚠ {typhoonHitByRoute[i].join(', ')} 반경 통과
                     </span>
                   )}
-                </div>
-
-                {/* FOIS 실제 제출 ATC 비행계획 기준 오늘 스케줄 — 우리 DB 저장 여부와
-                    무관하게 그 구간(출발-도착)으로 오늘 실제 신청된 전 항공사 편 */}
-                <div className="flex items-start gap-1.5 mt-1.5 pt-1.5 border-t border-gray-800">
-                  <Plane size={11} className="text-gray-500 mt-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-gray-500 mb-1">
-                      오늘 실제 신청 스케줄 (타사 포함)
-                    </div>
-                    {(() => {
-                      const key = `${r.origin}-${r.destination}`
-                      const sched = schedules[key]
-                      if (!sched) {
-                        return <span className="text-[10px] text-gray-600">패널을 펼치면 조회됩니다</span>
-                      }
-                      if (sched.loading) {
-                        return <span className="text-[10px] text-gray-600">불러오는 중…</span>
-                      }
-                      if (sched.error) {
-                        return <span className="text-[10px] text-red-400">조회 실패 ({sched.error})</span>
-                      }
-                      if (sched.flights.length === 0) {
-                        return <span className="text-[10px] text-gray-600">오늘 신청된 편 없음</span>
-                      }
-                      return (
-                        <div className="max-h-28 overflow-y-auto space-y-0.5 pr-1">
-                          {sched.flights.map(f => (
-                            <div key={f.ams_rec_pk ?? f.callsign} className="flex items-center justify-between gap-2 text-[10px]">
-                              <span className="font-mono text-gray-300 truncate">{f.callsign}</span>
-                              <span className="flex items-center gap-1.5 shrink-0 text-gray-500">
-                                {fmtFoisTime(f.etd ?? f.sched_time)}
-                                {f.dep_status === 'DLA' && (
-                                  <span className="px-1 py-0.5 rounded bg-amber-900/40 text-amber-300 border border-amber-700">지연</span>
-                                )}
-                              </span>
-                            </div>
-                          ))}
-                          <div className="text-gray-600 pt-0.5">총 {sched.flights.length}편</div>
-                        </div>
-                      )
-                    })()}
-                  </div>
                 </div>
               </div>
               )
