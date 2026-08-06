@@ -832,16 +832,19 @@ export default function MapView() {
     return { type: 'FeatureCollection' as const, features }
   }, [adhocRouteData])
 
-  // ── 선택된 항로의 구간별 항로명(Y697 등) 라벨 — 백엔드가 각 구간 중점에 미리
-  // 계산해둔 좌표(legs)를 그대로 점으로 찍어서 심볼 라벨만 얹음 ──
+  // ── 선택된 항로의 구간별 항로명(Y697 등) 라벨 — 백엔드가 내려주는 구간별 좌표열(legs)을
+  // LineString으로 만들고, symbol-placement:line으로 그 구간을 따라 라벨을 반복 표시.
+  // 하나의 항공로가 여러 waypoint를 거치며 오래 이어져도 중간중간 계속 이름이 보임 ──
   const selectedRouteLegsData = useMemo(() => {
     const features = selectedRouteHighlightData.features.flatMap(f => {
-      const legs = (f.properties?.legs as { airway: string; lon: number; lat: number }[] | undefined) ?? []
-      return legs.map(l => ({
-        type: 'Feature' as const,
-        geometry: { type: 'Point' as const, coordinates: [l.lon, l.lat] },
-        properties: { airway: l.airway },
-      }))
+      const legs = (f.properties?.legs as { airway: string; coords: [number, number][] }[] | undefined) ?? []
+      return legs
+        .filter(l => l.coords.length >= 2)
+        .map(l => ({
+          type: 'Feature' as const,
+          geometry: { type: 'LineString' as const, coordinates: l.coords },
+          properties: { airway: l.airway },
+        }))
     })
     return { type: 'FeatureCollection' as const, features }
   }, [selectedRouteHighlightData])
@@ -849,12 +852,14 @@ export default function MapView() {
   // ── 직접 입력한 항로의 구간별 항로명 라벨 ──
   const adhocRouteLegsData = useMemo(() => {
     const features = adhocRouteData.features.flatMap(f => {
-      const legs = (f.properties?.legs as { airway: string; lon: number; lat: number }[] | undefined) ?? []
-      return legs.map(l => ({
-        type: 'Feature' as const,
-        geometry: { type: 'Point' as const, coordinates: [l.lon, l.lat] },
-        properties: { airway: l.airway },
-      }))
+      const legs = (f.properties?.legs as { airway: string; coords: [number, number][] }[] | undefined) ?? []
+      return legs
+        .filter(l => l.coords.length >= 2)
+        .map(l => ({
+          type: 'Feature' as const,
+          geometry: { type: 'LineString' as const, coordinates: l.coords },
+          properties: { airway: l.airway },
+        }))
     })
     return { type: 'FeatureCollection' as const, features }
   }, [adhocRouteData])
@@ -1162,7 +1167,8 @@ export default function MapView() {
               'text-field': ['get', 'airway'],
               'text-font': ['Noto Sans Regular'],
               'text-size': 10,
-              'text-anchor': 'center',
+              'symbol-placement': 'line',
+              'symbol-spacing': 160,
               'text-allow-overlap': false,
             }}
             paint={{ 'text-color': LEG_LABEL_COLOR, 'text-halo-color': '#111827', 'text-halo-width': 1 }}
@@ -1553,7 +1559,8 @@ export default function MapView() {
               'text-field': ['get', 'airway'],
               'text-font': ['Noto Sans Regular'],
               'text-size': 10,
-              'text-anchor': 'center',
+              'symbol-placement': 'line',
+              'symbol-spacing': 160,
               'text-allow-overlap': false,
             }}
             paint={{ 'text-color': LEG_LABEL_COLOR, 'text-halo-color': '#111827', 'text-halo-width': 1 }}
