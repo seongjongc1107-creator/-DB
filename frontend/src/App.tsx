@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FileText, SlidersHorizontal } from 'lucide-react'
+import { FileText, SlidersHorizontal, BarChart3 } from 'lucide-react'
 import { api } from './api/client'
 import { useApp } from './AppContext'
 import { useWeatherMonitor } from './hooks/useWeatherMonitor'
@@ -7,17 +7,20 @@ import Sidebar from './components/Sidebar'
 import MapView from './components/MapView'
 import RightPanel from './components/RightPanel'
 import RouteComparePanel from './components/RouteComparePanel'
+import FoisRouteComparePanel from './components/FoisRouteComparePanel'
 import WeatherAlertToast from './components/WeatherAlertToast'
 import AirportPanel from './components/AirportPanel'
 import CurfewPanel from './components/CurfewPanel'
 import WeatherThresholdModal from './components/WeatherThresholdModal'
 import AirportMinimumsTable from './components/AirportMinimumsTable'
 import AdHocRouteInput from './components/AdHocRouteInput'
+import FlightFilingStatsPage from './components/FlightFilingStatsPage'
 import PermitApp from './permits/PermitApp'
 
 export default function App() {
   const { state, dispatch } = useApp()
   const [permitMode, setPermitMode] = useState(false)
+  const [filingStatsMode, setFilingStatsMode] = useState(false)
   const [minimumsOpen, setMinimumsOpen] = useState(false)
 
   // Initial data load
@@ -72,6 +75,7 @@ export default function App() {
         <MapView />
         <RightPanel />
         <RouteComparePanel />
+        <FoisRouteComparePanel />
         <AirportPanel />
         <CurfewPanel />
         <WeatherThresholdModal />
@@ -93,6 +97,13 @@ export default function App() {
             허가 관리
           </button>
           <button
+            onClick={() => setFilingStatsMode(true)}
+            className="flex items-center gap-1.5 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 hover:border-cyan-600 text-gray-400 hover:text-cyan-400 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-lg backdrop-blur"
+          >
+            <BarChart3 size={12} />
+            항로 실적
+          </button>
+          <button
             onClick={() => setMinimumsOpen(true)}
             className="relative flex items-center gap-1.5 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 hover:border-amber-600 text-gray-400 hover:text-amber-400 text-xs font-semibold px-3 py-2 rounded-lg transition-all shadow-lg backdrop-blur"
           >
@@ -106,6 +117,7 @@ export default function App() {
           </button>
         </div>
       </main>
+      {filingStatsMode && <FlightFilingStatsPage onClose={() => setFilingStatsMode(false)} />}
     </div>
   )
 }

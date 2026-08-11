@@ -83,7 +83,9 @@ export interface FoisRoute {
   legs?: { airway: string; coords: [number, number][] }[]
   waypoints?: { id: string; lon: number; lat: number }[]
   airway_gaps?: string[]
+  route?: string        // 고도/속도 변경값 등을 뗀 항로 부분만 (출발-경유-도착)
   route_raw?: string
+  eet?: string | null  // FPL 신고 총 예상비행시간, "HHMM" 형식
   error?: string
 }
 
@@ -94,6 +96,9 @@ export interface FoisOverlayRoute {
   callsign: string
   dep: string
   arr: string
+  ac_type: string | null
+  eet: string | null       // FPL 신고 총 예상비행시간, "HHMM" 형식 — 실측이 아니라 신고값
+  route: string | null     // 고도/속도 변경값 등을 뗀 항로 부분만
   coordinates: [number, number][]
   legs: { airway: string; coords: [number, number][] }[]
   waypoints: { id: string; lon: number; lat: number }[]
@@ -248,6 +253,80 @@ export interface WeatherHistoryMonthly {
   error?: string
 }
 
+// ─── FOIS 항로 제출 실적 이력 ────────────────────────────────────────────────
+
+export interface FplCollectStatus {
+  dep: string | null
+  arr: string | null
+  start: string
+  end: string
+  status: 'running' | 'done' | 'cancelled' | 'error'
+  total_days: number
+  processed_days: number
+  total_flights: number
+  collected: number
+  skipped: number
+  failed: number
+  error: string | null
+}
+
+export interface FplAircraftStat {
+  ac_type: string
+  count: number
+  pct: number
+  eet_avg_min: number | null
+}
+
+export interface FplRouteStat {
+  route: string
+  count: number
+  pct: number
+  distance_nm: number | null
+  // 이 항로를 실제로 탄 기종별 건수·평균 비행시간 — 항로가 짧아서 빠른 건지
+  // 기종이 빨라서 빠른 건지 구분하려면 전체 평균이 아니라 이 단위로 봐야 함
+  aircraft: FplAircraftStat[]
+}
+
+// 항로 실적 페이지에서 "이 제출 항로를 지도에 표시" 눌렀을 때 오버레이 —
+// 특정 편 하나(FoisOverlayRoute)가 아니라 여러 편이 공유하는 항로 패턴이라
+// ams_rec_pk가 아닌 항로 문자열 자체를 키로 씀
+export interface FiledRouteOverlay {
+  id: string
+  dep: string
+  arr: string
+  route: string
+  count: number
+  coordinates: [number, number][]
+  legs: { airway: string; coords: [number, number][] }[]
+  waypoints: { id: string; lon: number; lat: number }[]
+  color: string
+}
+
+export interface FplOdStats {
+  dep: string
+  arr: string
+  count: number
+  routes: FplRouteStat[]
+  aircraft: FplAircraftStat[]
+  eet_avg_min: number | null
+  eet_min_min: number | null
+  eet_max_min: number | null
+}
+
+export interface FplAirlineCount {
+  code: string
+  count: number
+}
+
+export interface FplHistoryStats {
+  start: string
+  end: string
+  count: number
+  groups: FplOdStats[]
+  airlines: FplAirlineCount[]
+  error?: string
+}
+
 export interface CollectStatus {
   icao: string
   start: string
@@ -394,6 +473,8 @@ export interface AppState {
   thresholdModalTarget: string | null  // null=닫힘, 'defaults'=전체기본값, ICAO=공항별
   // FOIS 실제 제출 항로 지도 오버레이 — ams_rec_pk로 키잉, 공항 패널 스케줄 탭에서 편별 토글
   foisOverlayRoutes: Record<number, FoisOverlayRoute>
+  // 항로 실적 페이지에서 켠 "제출 항로 패턴" 지도 오버레이 — 항로 문자열로 키잉
+  filedRouteOverlays: Record<string, FiledRouteOverlay>
 }
 
 export type AppAction =
@@ -460,3 +541,6 @@ export type AppAction =
   | { type: 'ADD_FOIS_OVERLAY_ROUTE'; payload: FoisOverlayRoute }
   | { type: 'REMOVE_FOIS_OVERLAY_ROUTE'; payload: number }
   | { type: 'CLEAR_FOIS_OVERLAY_ROUTES' }
+  | { type: 'ADD_FILED_ROUTE_OVERLAY'; payload: FiledRouteOverlay }
+  | { type: 'REMOVE_FILED_ROUTE_OVERLAY'; payload: string }
+  | { type: 'CLEAR_FILED_ROUTE_OVERLAYS' }

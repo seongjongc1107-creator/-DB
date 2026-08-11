@@ -281,6 +281,7 @@ function ScheduleTab({ icao }: { icao: string }) {
         payload: {
           ams_rec_pk: pk, callsign: f.callsign,
           dep: f.dep ?? res.dep ?? '', arr: f.arr ?? res.arr ?? '',
+          ac_type: f.ac_type, eet: res.eet ?? null, route: res.route ?? null,
           coordinates: res.coordinates, legs: res.legs ?? [], waypoints: res.waypoints ?? [],
           color: airlineColor(f.callsign),
         },

@@ -610,6 +610,43 @@ export default function MapView() {
     return { type: 'FeatureCollection' as const, features }
   }, [state.foisOverlayRoutes])
 
+  // ── 항로 실적 페이지에서 켠 "제출 항로 패턴" 오버레이 — 특정 편이 아니라
+  // 여러 편이 공유하는 항로라 fois-overlay와 별개 소스로 그림 ──
+  const filedRouteOverlayData = useMemo(() => {
+    const routes = Object.values(state.filedRouteOverlays)
+    if (routes.length === 0) return EMPTY_FC
+    return {
+      type: 'FeatureCollection' as const,
+      features: routes.map(r => ({
+        type: 'Feature' as const,
+        geometry: { type: 'LineString' as const, coordinates: r.coordinates },
+        properties: { isFiledRouteOverlay: true, dep: r.dep, arr: r.arr, count: r.count, color: r.color },
+      })),
+    }
+  }, [state.filedRouteOverlays])
+
+  const filedRouteOverlayWaypointsData = useMemo(() => {
+    const routes = Object.values(state.filedRouteOverlays)
+    const features = routes.flatMap(r => r.waypoints.map(w => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [w.lon, w.lat] },
+      properties: { id: w.id, color: r.color },
+    })))
+    return { type: 'FeatureCollection' as const, features }
+  }, [state.filedRouteOverlays])
+
+  const filedRouteOverlayLegsData = useMemo(() => {
+    const routes = Object.values(state.filedRouteOverlays)
+    const features = routes.flatMap(r => r.legs
+      .filter(l => l.coords.length >= 2)
+      .map(l => ({
+        type: 'Feature' as const,
+        geometry: { type: 'LineString' as const, coordinates: l.coords },
+        properties: { airway: l.airway, color: r.color },
+      })))
+    return { type: 'FeatureCollection' as const, features }
+  }, [state.filedRouteOverlays])
+
   // ── Typhoon circles ──────────────────────────────────────────────
   const typhoonData = useMemo(() => {
     if (state.typhoons.length === 0) return EMPTY_FC
@@ -927,7 +964,7 @@ export default function MapView() {
           inDrawMode ? [] : [
             'routes-line-hit', 'airports-circle-hit', 'airway-line',
             'searched-routes-line', 'selected-route-line',
-            'waypoints-circle-hit', 'all-airways-line-hit', 'fois-overlay-line',
+            'waypoints-circle-hit', 'all-airways-line-hit', 'fois-overlay-line', 'filed-route-overlay-line',
             ...(state.layers.traffic ? ['traffic-icon'] : []),
             ...(state.layers.volcanicAsh ? ['volcanic-ash-fill', 'volcanic-ash-volcano-point'] : []),
             ...(state.layers.typhoon ? ['typhoon-fill', 'typhoon-center', 'typhoon-track-dots'] : []),
@@ -1678,6 +1715,76 @@ export default function MapView() {
             paint={{ 'text-color': ['get', 'color'], 'text-halo-color': '#0b1220', 'text-halo-width': 1 }}
           />
         </Source>
+
+        {/* ── 항로 실적 페이지의 "제출 항로 패턴" 오버레이 — 특정 편의 실제 항로(fois-overlay,
+            실선)와 구분되게 대시선으로 그려서 "여러 편이 공유하는 집계 패턴"임을 표시 ── */}
+        <Source id="filed-route-overlay" type="geojson" data={filedRouteOverlayData}>
+          <Layer
+            id="filed-route-overlay-casing"
+            type="line"
+            paint={{ 'line-color': '#0b1220', 'line-width': 4.5, 'line-opacity': 0.85 }}
+          />
+          <Layer
+            id="filed-route-overlay-line"
+            type="line"
+            paint={{ 'line-color': ['get', 'color'], 'line-width': 2.2, 'line-dasharray': [2, 1.5] }}
+          />
+          <Layer
+            id="filed-route-overlay-label"
+            type="symbol"
+            layout={{
+              'text-field': ['concat', ['get', 'dep'], ' → ', ['get', 'arr'], ' (', ['get', 'count'], '회)'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 10,
+              'symbol-placement': 'line',
+              'symbol-spacing': 200,
+              'text-allow-overlap': false,
+            }}
+            paint={{ 'text-color': ['get', 'color'], 'text-halo-color': '#0b1220', 'text-halo-width': 1.2 }}
+          />
+        </Source>
+
+        <Source id="filed-route-overlay-waypoints" type="geojson" data={filedRouteOverlayWaypointsData}>
+          <Layer
+            id="filed-route-overlay-waypoints-circle"
+            type="circle"
+            paint={{
+              'circle-radius': 3.5,
+              'circle-color': '#fff',
+              'circle-stroke-color': ['get', 'color'],
+              'circle-stroke-width': 1.5,
+            }}
+          />
+          <Layer
+            id="filed-route-overlay-waypoints-label"
+            type="symbol"
+            layout={{
+              'text-field': ['get', 'id'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 11,
+              'text-offset': [0, 1],
+              'text-anchor': 'top',
+              'text-allow-overlap': false,
+            }}
+            paint={{ 'text-color': ['get', 'color'], 'text-halo-color': '#0b1220', 'text-halo-width': 0.8 }}
+          />
+        </Source>
+
+        <Source id="filed-route-overlay-legs" type="geojson" data={filedRouteOverlayLegsData}>
+          <Layer
+            id="filed-route-overlay-legs-label"
+            type="symbol"
+            layout={{
+              'text-field': ['get', 'airway'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 10,
+              'symbol-placement': 'line',
+              'symbol-spacing': 160,
+              'text-allow-overlap': false,
+            }}
+            paint={{ 'text-color': ['get', 'color'], 'text-halo-color': '#0b1220', 'text-halo-width': 1 }}
+          />
+        </Source>
       </Map>
 
       {/* Tooltip */}
@@ -1716,6 +1823,18 @@ export default function MapView() {
                 {tooltip.props.dep as string} → {tooltip.props.arr as string}
               </div>
               <div className="text-gray-600 text-[10px]">FOIS 실제 제출 항로</div>
+            </div>
+          ) : tooltip.props.isFiledRouteOverlay ? (
+            // 항로 실적 페이지 "제출 항로 패턴" 오버레이 hover
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: tooltip.props.color as string }} />
+                <span className="font-bold text-sm" style={{ color: tooltip.props.color as string }}>
+                  {tooltip.props.dep as string} → {tooltip.props.arr as string}
+                </span>
+              </div>
+              <div className="text-gray-400 text-[11px]">{tooltip.props.count as number}회 제출됨</div>
+              <div className="text-gray-600 text-[10px]">항로 실적 — 제출 항로 패턴</div>
             </div>
           ) : tooltip.props.callsign ? (
             // Aircraft tooltip

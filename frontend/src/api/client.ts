@@ -1,4 +1,4 @@
-import type { AircraftState, AirportDetail, CollectStatus, CurfewInfo, FoisFlight, FoisRoute, GeoJSONFeatureCollection, MetarData, RouteMeta, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherTrendData } from '../types'
+import type { AircraftState, AirportDetail, CollectStatus, CurfewInfo, FoisFlight, FplCollectStatus, FplHistoryStats, FoisRoute, GeoJSONFeatureCollection, MetarData, RouteMeta, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherTrendData } from '../types'
 
 const BASE = '/api'
 
@@ -59,6 +59,18 @@ export const api = {
       ),
     route: (amsRecPk: number) =>
       get<FoisRoute>('/fois/route', { ams_rec_pk: String(amsRecPk) }),
+    historyCollect: (params: { dep?: string; arr?: string; start: string; end: string }) => {
+      const url = new URL(BASE + '/fois/history/collect', window.location.origin)
+      if (params.dep) url.searchParams.set('dep', params.dep)
+      if (params.arr) url.searchParams.set('arr', params.arr)
+      url.searchParams.set('start', params.start)
+      url.searchParams.set('end', params.end)
+      return fetch(url.toString(), { method: 'POST' }).then(r => r.json() as Promise<{ task_id: string; error?: string }>)
+    },
+    historyStatus: (taskId: string) =>
+      get<FplCollectStatus>(`/fois/history/status/${encodeURIComponent(taskId)}`),
+    historyStats: (params: { dep?: string; arr?: string; airline?: string; start: string; end: string }) =>
+      get<FplHistoryStats>('/fois/history/stats', params as Record<string, string>),
   },
   typhoon: {
     active: () => get<{ source: string; count: number; typhoons: Typhoon[]; error?: string }>('/typhoon/active'),

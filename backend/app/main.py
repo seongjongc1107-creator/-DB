@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from .db import init_db
+from .fpl_db import init_fpl_db
 from .data_loader import store
 from .routers import routes, navdata, search, typhoon, weather, volcanic_ash
 from .routers.curfew import load_curfew_file
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
         await loop.run_in_executor(pool, store.load)
     load_curfew_file()
     await init_db()
+    await init_fpl_db()
     yield
 
 

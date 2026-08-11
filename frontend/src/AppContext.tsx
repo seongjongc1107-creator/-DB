@@ -65,6 +65,7 @@ const initialState: AppState = {
   weatherConfig: loadConfig(),
   thresholdModalTarget: null,
   foisOverlayRoutes: {},
+  filedRouteOverlays: {},
 }
 
 function reducer(state: AppState, action: AppAction): AppState {
@@ -307,6 +308,18 @@ function reducer(state: AppState, action: AppAction): AppState {
     }
     case 'CLEAR_FOIS_OVERLAY_ROUTES':
       return { ...state, foisOverlayRoutes: {} }
+    case 'ADD_FILED_ROUTE_OVERLAY':
+      return {
+        ...state,
+        filedRouteOverlays: { ...state.filedRouteOverlays, [action.payload.id]: action.payload },
+      }
+    case 'REMOVE_FILED_ROUTE_OVERLAY': {
+      const next = { ...state.filedRouteOverlays }
+      delete next[action.payload]
+      return { ...state, filedRouteOverlays: next }
+    }
+    case 'CLEAR_FILED_ROUTE_OVERLAYS':
+      return { ...state, filedRouteOverlays: {} }
     default:
       return state
   }
