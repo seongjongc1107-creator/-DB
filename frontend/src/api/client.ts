@@ -1,4 +1,4 @@
-import type { AircraftState, AirportDetail, CollectStatus, CurfewInfo, FoisFlight, FplCollectStatus, FplHistoryStats, FoisRoute, GeoJSONFeatureCollection, MetarData, RouteMeta, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherTrendData } from '../types'
+import type { AdminDataStatus, AdminMinimaUploadResult, AdminUploadResult, AircraftState, AirportDetail, CollectStatus, CurfewInfo, FoisFlight, FplCollectStatus, FplHistoryStats, FoisRoute, GeoJSONFeatureCollection, MetarData, RouteMeta, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherThresholds, WeatherTrendData } from '../types'
 
 const BASE = '/api'
 
@@ -43,11 +43,14 @@ export const api = {
   },
   curfew: {
     list: () => get<{ count: number; curfews: CurfewInfo[] }>('/curfew/'),
-    upload: (file: File) => {
+    upload: async (file: File, password: string) => {
       const form = new FormData()
       form.append('file', file)
-      return fetch(`${BASE}/curfew/upload`, { method: 'POST', body: form })
-        .then(r => { if (!r.ok) throw new Error(`Upload failed ${r.status}`); return r.json() as Promise<{ count: number; curfews: CurfewInfo[] }> })
+      form.append('password', password)
+      const res = await fetch(`${BASE}/curfew/upload`, { method: 'POST', body: form })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.detail || `업로드 실패 (${res.status})`)
+      return body as { count: number; curfews: CurfewInfo[] }
     },
     clear: () => fetch(`${BASE}/curfew/`, { method: 'DELETE' }).then(r => r.json()),
   },
@@ -71,6 +74,27 @@ export const api = {
       get<FplCollectStatus>(`/fois/history/status/${encodeURIComponent(taskId)}`),
     historyStats: (params: { dep?: string; arr?: string; airline?: string; start: string; end: string }) =>
       get<FplHistoryStats>('/fois/history/stats', params as Record<string, string>),
+  },
+  admin: {
+    status: () => get<AdminDataStatus>('/admin/data/status'),
+    upload: async (target: 'navdata' | 'routes', file: File, password: string) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('password', password)
+      const res = await fetch(`${BASE}/admin/data/${target}`, { method: 'POST', body: form })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.detail || `업로드 실패 (${res.status})`)
+      return body as AdminUploadResult
+    },
+    uploadMinima: async (file: File, password: string) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('password', password)
+      const res = await fetch(`${BASE}/admin/data/minima`, { method: 'POST', body: form })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.detail || `업로드 실패 (${res.status})`)
+      return body as AdminMinimaUploadResult
+    },
   },
   typhoon: {
     active: () => get<{ source: string; count: number; typhoons: Typhoon[]; error?: string }>('/typhoon/active'),
@@ -98,5 +122,6 @@ export const api = {
       get<WeatherHistoryTrend>('/weather/history/trend', { icao, start, end, ...(raw ? { raw: 'true' } : {}) }),
     historyMonthly: (icao: string, start: string, end: string) =>
       get<WeatherHistoryMonthly>('/weather/history/monthly', { icao, start, end }),
+    minimaSeed: () => get<Record<string, WeatherThresholds>>('/weather/minima-seed'),
   },
 }

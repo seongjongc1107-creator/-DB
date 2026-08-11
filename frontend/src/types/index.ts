@@ -282,8 +282,16 @@ export interface FplRouteStat {
   count: number
   pct: number
   distance_nm: number | null
+  eet_avg_min: number | null  // 기종 무관, 이 항로 전체의 평균 비행시간(정렬용)
+  last_flown: string          // 가장 최근 신고일(YYYY-MM-DD)
   // 이 항로를 실제로 탄 기종별 건수·평균 비행시간 — 항로가 짧아서 빠른 건지
   // 기종이 빨라서 빠른 건지 구분하려면 전체 평균이 아니라 이 단위로 봐야 함
+  aircraft: FplAircraftStat[]
+}
+
+export interface FplAirlineBreakdown {
+  airline: string
+  count: number
   aircraft: FplAircraftStat[]
 }
 
@@ -308,6 +316,7 @@ export interface FplOdStats {
   count: number
   routes: FplRouteStat[]
   aircraft: FplAircraftStat[]
+  by_airline: FplAirlineBreakdown[]
   eet_avg_min: number | null
   eet_min_min: number | null
   eet_max_min: number | null
@@ -325,6 +334,34 @@ export interface FplHistoryStats {
   groups: FplOdStats[]
   airlines: FplAirlineCount[]
   error?: string
+}
+
+// ─── 관리자: 근간 데이터(NAVDATA/항로 DB) 업로드 ─────────────────────────────
+
+export interface AdminDataStatus {
+  airports: number
+  waypoints: number
+  airways: number
+  routes: number
+  empty_routes: number
+  suspicious_routes: number
+  suspicious_sample: string[]
+  minima_airports: number
+  backups: string[]
+}
+
+export interface AdminUploadResult extends Omit<AdminDataStatus, 'minima_airports' | 'backups'> {
+  ok: boolean
+  target: 'navdata' | 'routes'
+  backup: string | null
+}
+
+export interface AdminMinimaUploadResult {
+  ok: boolean
+  target: 'minima'
+  backup: string | null
+  resolved: number
+  unresolved_iata: string[]
 }
 
 export interface CollectStatus {

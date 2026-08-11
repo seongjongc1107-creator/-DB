@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { X, Search, RefreshCw, Plane, Route, Clock, MapPin } from 'lucide-react'
+import { X, Search, RefreshCw, Plane, Clock, MapPin } from 'lucide-react'
 import { api } from '../api/client'
 import { useApp } from '../AppContext'
 import { SELECT_COLORS } from '../lib/selectionColors'
@@ -90,101 +90,144 @@ function RouteOverlayButton({ g, r, colorIdx }: { g: FplOdStats; r: FplRouteStat
   )
 }
 
+type SortKey = 'freq' | 'distance' | 'time' | 'recent'
+const SORT_LABELS: Record<SortKey, string> = {
+  freq: '빈도순', distance: '거리순', time: '비행시간순', recent: '최신일자순',
+}
+
+function AircraftLine({ a }: { a: { ac_type: string; count: number; eet_avg_min: number | null } }) {
+  return (
+    <div className="text-[11px] text-gray-400 flex items-center gap-1.5 pl-3">
+      <span className="text-gray-600">-</span>
+      <span className="text-gray-300 font-mono">{a.ac_type}</span>
+      <span>: {a.count}건</span>
+      <span className="text-gray-600">(평균 {formatMin(a.eet_avg_min)})</span>
+    </div>
+  )
+}
+
 function OdCard({ g }: { g: FplOdStats }) {
+  const [tab, setTab] = useState<'airline' | 'route'>('airline')
   const [showAllRoutes, setShowAllRoutes] = useState(false)
-  const [sortBy, setSortBy] = useState<'freq' | 'distance'>('freq')
+  const [sortBy, setSortBy] = useState<SortKey>('freq')
 
   const sortedRoutes = useMemo(() => {
-    if (sortBy === 'freq') return g.routes // 백엔드가 이미 빈도 내림차순으로 줌
-    // 거리순(짧은 것부터) — 단축항로 후보를 찾을 때는 이 순서가 유용함.
-    // 거리 계산에 실패한 항로(null)는 판단 불가라 맨 뒤로 밀어냄
-    return [...g.routes].sort((a, b) => {
-      if (a.distance_nm == null) return 1
-      if (b.distance_nm == null) return -1
-      return a.distance_nm - b.distance_nm
-    })
+    switch (sortBy) {
+      case 'freq':
+        return g.routes // 백엔드가 이미 빈도 내림차순으로 줌
+      case 'distance':
+        // 거리순(짧은 것부터) — 단축항로 후보를 찾을 때 유용. 계산 실패(null)는 맨 뒤로
+        return [...g.routes].sort((a, b) => {
+          if (a.distance_nm == null) return 1
+          if (b.distance_nm == null) return -1
+          return a.distance_nm - b.distance_nm
+        })
+      case 'time':
+        return [...g.routes].sort((a, b) => {
+          if (a.eet_avg_min == null) return 1
+          if (b.eet_avg_min == null) return -1
+          return a.eet_avg_min - b.eet_avg_min
+        })
+      case 'recent':
+        return [...g.routes].sort((a, b) => b.last_flown.localeCompare(a.last_flown))
+    }
   }, [g.routes, sortBy])
 
   const routes = showAllRoutes ? sortedRoutes : sortedRoutes.slice(0, 5)
+
   return (
     <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-3 space-y-2.5">
       <div className="flex items-center justify-between">
         <span className="text-sm font-bold text-white">{g.dep} → {g.arr}</span>
-        <span className="text-[11px] text-gray-500">{g.count.toLocaleString()}편</span>
+        <span className="text-[11px] text-gray-500">총 {g.count.toLocaleString()}편 수집 완료</span>
       </div>
 
       <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
         <Clock size={12} className="text-gray-500 shrink-0" />
-        <span>평균 <b className="text-gray-200">{formatMin(g.eet_avg_min)}</b></span>
-        <span className="text-gray-600 text-[10px]">(최소 {formatMin(g.eet_min_min)} · 최대 {formatMin(g.eet_max_min)})</span>
+        <span>평균 비행시간 <b className="text-gray-200">{formatMin(g.eet_avg_min)}</b></span>
+        <span className="text-gray-600 text-[10px]">(최소 {formatMin(g.eet_min_min)} ~ 최대 {formatMin(g.eet_max_min)})</span>
       </div>
 
-      <div>
-        <div className="flex items-center gap-1.5 text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">
-          <Plane size={11} /> 기종별 분포 · 평균 비행시간
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {g.aircraft.map(a => (
-            <span key={a.ac_type} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
-              {a.ac_type} <span className="text-gray-500">{Math.round(a.pct * 100)}%</span>
-              <span className="text-gray-600"> · {formatMin(a.eet_avg_min)}</span>
-            </span>
-          ))}
-        </div>
+      <div className="flex items-center gap-3 border-b border-gray-800 text-[11px] font-semibold -mx-3 px-3">
+        <button
+          onClick={() => setTab('airline')}
+          className={`pb-1.5 border-b-2 transition-colors ${tab === 'airline' ? 'border-cyan-500 text-cyan-300' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
+        >
+          항공사별 기재 투입 현황
+        </button>
+        <button
+          onClick={() => setTab('route')}
+          className={`pb-1.5 border-b-2 transition-colors ${tab === 'route' ? 'border-cyan-500 text-cyan-300' : 'border-transparent text-gray-500 hover:text-gray-300'}`}
+        >
+          제출 항로 분석
+        </button>
       </div>
 
-      <div>
-        <div className="flex items-center gap-1.5 text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">
-          <Route size={11} /> 제출 항로
-          <div className="ml-auto flex items-center gap-0.5 normal-case tracking-normal">
-            <button
-              onClick={() => setSortBy('freq')}
-              className={`px-1.5 py-0.5 rounded ${sortBy === 'freq' ? 'bg-cyan-900/60 text-cyan-300' : 'text-gray-600 hover:text-gray-400'}`}
-            >
-              빈도순
-            </button>
-            <button
-              onClick={() => setSortBy('distance')}
-              className={`px-1.5 py-0.5 rounded ${sortBy === 'distance' ? 'bg-cyan-900/60 text-cyan-300' : 'text-gray-600 hover:text-gray-400'}`}
-            >
-              거리순
-            </button>
-          </div>
-        </div>
-        <div className="space-y-2">
-          {routes.map((r, i) => (
-            <div key={r.route}>
-              <div className="flex items-center gap-1.5 text-[11px]">
-                <span className="text-gray-500 w-8 shrink-0">{Math.round(r.pct * 100)}%</span>
-                <div className="flex-1 h-1 bg-gray-800 rounded-full overflow-hidden min-w-[24px]">
-                  <div className="h-full bg-cyan-600 rounded-full" style={{ width: `${r.pct * 100}%` }} />
-                </div>
-                <span className="text-gray-500 shrink-0">{r.count}건</span>
-                <span className="text-amber-400/90 shrink-0">
-                  {r.distance_nm != null ? `${r.distance_nm.toLocaleString()}NM` : '—'}
-                </span>
-                <RouteOverlayButton g={g} r={r} colorIdx={i} />
+      {tab === 'airline' && (
+        <div className="space-y-2.5">
+          {g.by_airline.map(al => (
+            <div key={al.airline}>
+              <div className="flex items-center gap-1.5 text-xs font-bold">
+                <Plane size={11} className="text-gray-500" />
+                <span style={{ color: airlineColor(al.airline) }}>{al.airline}</span>
+                <span className="text-gray-500 font-normal">({al.count}편)</span>
               </div>
-              <div className="text-[10px] text-gray-400 font-mono break-all mt-0.5">{r.route}</div>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {r.aircraft.map(a => (
-                  <span key={a.ac_type} className="text-[9px] px-1 py-0.5 rounded bg-gray-800/80 text-gray-400 border border-gray-700/80">
-                    {a.ac_type} {a.count}건 · {formatMin(a.eet_avg_min)}
-                  </span>
-                ))}
+              <div className="mt-1 space-y-0.5">
+                {al.aircraft.map(a => <AircraftLine key={a.ac_type} a={a} />)}
               </div>
             </div>
           ))}
         </div>
-        {g.routes.length > 5 && (
-          <button
-            onClick={() => setShowAllRoutes(v => !v)}
-            className="text-[10px] text-cyan-400 hover:text-cyan-300 mt-1.5"
-          >
-            {showAllRoutes ? '접기' : `${g.routes.length - 5}개 더 보기`}
-          </button>
-        )}
-      </div>
+      )}
+
+      {tab === 'route' && (
+        <div>
+          <div className="flex items-center gap-1 mb-2.5 flex-wrap">
+            <span className="text-[10px] text-gray-500 mr-0.5">정렬:</span>
+            {(Object.keys(SORT_LABELS) as SortKey[]).map(k => (
+              <button
+                key={k}
+                onClick={() => setSortBy(k)}
+                className={`text-[10px] px-1.5 py-0.5 rounded ${sortBy === k ? 'bg-cyan-900/60 text-cyan-300' : 'text-gray-600 hover:text-gray-400'}`}
+              >
+                {SORT_LABELS[k]}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            {routes.map((r, i) => (
+              <div key={r.route} className="border-l-2 border-cyan-800 pl-2">
+                <div className="flex items-center gap-1.5 text-[11px] flex-wrap">
+                  <span className="font-bold text-white shrink-0">항로 #{i + 1}</span>
+                  <span className="text-amber-400/90 shrink-0">
+                    {r.distance_nm != null ? `${r.distance_nm.toLocaleString()} NM` : '—'}
+                  </span>
+                  <span className="text-gray-400 shrink-0">{r.count}건 제출 ({Math.round(r.pct * 100)}%)</span>
+                  <span className="text-gray-500 shrink-0">평균 {formatMin(r.eet_avg_min)}</span>
+                  <span className="text-gray-600 text-[10px] shrink-0">최근 {r.last_flown}</span>
+                  <RouteOverlayButton g={g} r={r} colorIdx={i} />
+                </div>
+                <div className="text-[10px] text-gray-400 font-mono break-all mt-0.5">
+                  <span className="text-gray-600">Route: </span>{r.route}
+                </div>
+                <div className="mt-1 space-y-0.5">
+                  {r.aircraft.map(a => <AircraftLine key={a.ac_type} a={a} />)}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {g.routes.length > 5 && (
+            <button
+              onClick={() => setShowAllRoutes(v => !v)}
+              className="text-[10px] text-cyan-400 hover:text-cyan-300 mt-2"
+            >
+              {showAllRoutes ? '접기' : `${g.routes.length - 5}개 더 보기`}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

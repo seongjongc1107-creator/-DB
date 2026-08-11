@@ -426,6 +426,18 @@ def _fpl_stats(rows: list[FplArchive]) -> list[dict]:
             canon_cache[route] = _canonicalize_route(route)
         return canon_cache[route]
 
+    def _by_airline_breakdown(recs: list[FplArchive]) -> list[dict]:
+        """항공사별 투입 기종 현황(TAB 1용) — 항공사 코드로 한 번 더 묶고,
+        그 안에서 _ac_breakdown 재사용. airline 필터가 걸려 있으면 자연히
+        그 항공사 하나만 나옴."""
+        by_al: dict[str, list[FplArchive]] = defaultdict(list)
+        for r in recs:
+            by_al[_airline_code(r.callsign)].append(r)
+        return [
+            {"airline": al, "count": len(al_recs), "aircraft": _ac_breakdown(al_recs)}
+            for al, al_recs in sorted(by_al.items(), key=lambda kv: -len(kv[1]))
+        ]
+
     result = []
     for (dep, arr), recs in sorted(groups.items()):
         route_recs: dict[str, list[FplArchive]] = defaultdict(list)
@@ -440,21 +452,24 @@ def _fpl_stats(rows: list[FplArchive]) -> list[dict]:
                 eets.append(r.eet_min)
         total = len(recs)
 
-        routes_out = [
-            {
+        routes_out = []
+        for canon, rrecs in sorted(route_recs.items(), key=lambda kv: -len(kv[1])):
+            r_eets = [r.eet_min for r in rrecs if r.eet_min is not None]
+            routes_out.append({
                 # 표시용 문자열은 그 canonical 그룹 안에서 가장 흔한 원문 표기를 그대로 씀
                 "route": max(route_variants[canon].items(), key=lambda kv: kv[1])[0],
                 "count": len(rrecs), "pct": round(len(rrecs) / total, 3),
                 "distance_nm": _dist(canon),
+                "eet_avg_min": round(mean(r_eets)) if r_eets else None,
+                "last_flown": max(r.flight_date for r in rrecs),
                 "aircraft": _ac_breakdown(rrecs),
-            }
-            for canon, rrecs in sorted(route_recs.items(), key=lambda kv: -len(kv[1]))
-        ]
+            })
 
         result.append({
             "dep": dep, "arr": arr, "count": total,
             "routes": routes_out,
             "aircraft": _ac_breakdown(recs),
+            "by_airline": _by_airline_breakdown(recs),
             "eet_avg_min": round(mean(eets)) if eets else None,
             "eet_min_min": min(eets) if eets else None,
             "eet_max_min": max(eets) if eets else None,

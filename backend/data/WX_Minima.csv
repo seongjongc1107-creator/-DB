@@ -1,0 +1,777 @@
+﻿"ARP","RWYNM","TYPNM","RVR","VIS","DH","CIG","RMK"
+"BKI","02","RNAV",,"1000m","344","N","GNSS"
+"BKI","20","ILS(CAT Ⅰ)",,"2310m","572","N",
+"BKI","02","VOR",,"1400m","395","N",
+"BKI","02","RNAV",,"3100m","546","N","RNP"
+"BKI","02","ILS(CAT Ⅰ)",,"900m","286","N",
+"BKI","02/20","TAKE OFF","550M","800M",,"N",
+"BKI","20","RNAV",,"3200m","630","N","GNSS"
+"BKI","20","RNAV",,"4100m","699","N","RNP"
+"BKI","20","VOR",,"3200m","619","N",
+"BKK","01","ILS(CAT Ⅰ)","600M",,"256FT","N",
+"BKK","19","ILS(CAT Ⅱ)","400M",,"136FT","N",
+"BKK","19","ILS(CAT Ⅰ)","550M",,"246FT","N",
+"BKK","02R","ILS(CAT Ⅱ)","450M",,"146FT","N",
+"BKK","20L","ILS(CAT Ⅰ)","550M",,"200FT","N",
+"BKK","01","ILS(CAT Ⅱ)","450M",,"186FT","N",
+"BKK","02R","ILS(CAT Ⅰ)","550M",,"246FT","N",
+"BKK","20L","ILS(CAT Ⅱ)","400M",,"126FT","N",
+"BKK","01","RNAV","1700M",,"536FT","N",
+"BKK","02L","RNAV","1700M",,"532FT","N",
+"BKK","02R","RNAV","1700M",,"536FT","N",
+"BKK","20R","RNAV","2000M",,"592FT","N",
+"BKK","20L","RNAV","2000M",,"596FT","N",
+"BKK","19","RNAV","2000M",,"596FT","N",
+"BTH","04","RNAV",,"1500","407","N","RNP"
+"BTH","04","VOR",,"1600","437","N",
+"BTH","04","ILS(CAT Ⅰ)",,"800","267","N",
+"BTH","22","RNAV",,"2500","503","N","RNP"
+"BTH","22","VOR",,"1700","373","N",
+"BWN","03/21","TAKE OFF","250M",,,"N",
+"BWN","03","ILS(CAT Ⅰ)",,"800M","290","N",
+"BWN","21","ILS(CAT Ⅰ)",,"800M","216","N",
+"BWN","03","VOR DME",,"1200M","402","N",
+"BWN","03","NDB",,"1200M","402","N",
+"BWN","21","VOR DME",,"1600M","527","N",
+"CAN","20L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CAN","01","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CAN","02L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CAN","19","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CAN","02R","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CAN","20R","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CEB","22","VOR DME",,"2000m","469","N",
+"CEB","22","VOR",,"2400m","529","N",
+"CEB","22","RNAV",,"1200m","429","N",
+"CEB","04","RNAV",,"1200m","389","N",
+"CEB","04","VOR",,"2400m","542","N",
+"CEI","21","VOR",,"4400M","885","N",
+"CEI","03","VOR",,"2200M","550","N",
+"CEI","03","ILS(CAT Ⅰ)",,"800M","200","N",
+"CEI","03/21","TAKE OFF",,"250M",,"N",
+"CEI","03","NDB DME",,"1400M","420","N",
+"CEI","03","ILS(LOC)",,"800M","360","N",
+"CEI","21","RNAV",,"4000M","855","N",
+"CEI","03","RNAV",,"1200M","440","N",
+"CJJ","RWY 24R","LOC DME","4000ft","3/4sm","433","Y","RVR4000ft (1200m), 3/4sm (1200m), CIG 500ft required"
+"CJJ","RWY 24R","RNAV","4000ft","7/8sm","415","Y","RVR4000ft (1200m), 7/8sm (1400m), CIG 500ft required"
+"CJJ","PAR 24R","ILS(CAT Ⅰ)","2400ft","1/2sm","200","Y","RVR 2400ft(750m), 1/2sm(800m), CIG 200ft required"
+"CJJ","RWY 24R","ILS(CAT Ⅰ)","2400ft","1/2sm","200","Y","RVR 2400ft(750m), 1/2sm(800m), CIG 200ft required"
+"CJJ","RWY 06L","VOR DME","5000ft","1sm","532","Y","RVR 5000ft (1500m), 1sm(1600m), CIG 600ft required"
+"CJJ","RWY 06L","RNAV",,"1 1/4sm","458","Y","1 1/4sm(2000m), CIG 500ft required"
+"CJJ","RWY 24R","VOR DME",,"1 1/2sm","674","Y","1 1/2sm (2400m), CIG 700ft required"
+"CJJ","RWY 06L","LOC DME",,"1 1/4sm","533","Y","1 1/4sm(2000m), CIG 600ft required"
+"CJJ","RWY 06L","ILS(CAT Ⅰ)","4000ft","3/4sm","200","Y","RVR4000ft (1200m), 3/4sm (1200m), CIG 200ft required"
+"CJJ","RWY 06R","ILS(CAT Ⅰ)","4000ft","3/4sm","200","N","RVR4000ft (1200m), 3/4sm (1200m), CIG 200ft required"
+"CJJ","RWY 24L","ILS(CAT Ⅰ)","2400ft","1/2sm","200","Y","RVR 2400ft(750m), 1/2sm(800m), CIG 200ft required"
+"CJJ","PAR 06L","ILS(CAT Ⅰ)","2400ft","1/2sm","200","Y","RVR 2400ft(750m), 1/2sm(800m), CIG 200ft required"
+"CJJ","TAKE OFF","TAKE OFF","500m","500m",,"N",
+"CJU","RWY 25","VOR",,"2000m","534","N",
+"CJU","TAKE OFF","TAKE OFF","125m",,,"N",
+"CJU","RWY 07","ILS(CAT Ⅰ)","550m","800m","200","N","사용불가(~2025.04.16)"
+"CJU","RWY 07","VOR",,"2400m","773","N","10/31 부 VIS 변경 (2900M -> 2400M)   * JPSN 참조"
+"CJU","RWY 07","ILS(CAT Ⅱ)","300m",,"100","N","사용불가(~2025.04.16)"
+"CJU","RWY 25","ILS(CAT Ⅰ)","750m",,"200","N",
+"CJU","RWY 25","RNAV",,"2100m","544","N",
+"CJU","RWY 07","RNAV",,"1500m","473","N",
+"CKG","02L","VOR DME",,"3000M","659","N",
+"CKG","20L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CKG","02R","VOR DME",,"3000M","621","N",
+"CKG","20R","ILS(CAT Ⅰ)","550M",,"200","N",
+"CKG","02R","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CKG","21","ILS(CAT Ⅰ)","550m","800m","200","N",
+"CKG","02L","ILS(CAT Ⅱ)","300M",,"100","N",
+"CKG","ALL","TAKE OFF","200M",,,"N",
+"CKG","20L","VOR DME",,"1900M","486","N",
+"CKG","03","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CKG","02L","ILS(CAT Ⅰ)","550m","800m","200","N",
+"CKG","21","ILS(CAT Ⅱ)","300m",,"100","N",
+"CNX","36","RNAV",,"3200","653","N",
+"CNX","36","VOR",,"3200","653","N",
+"CNX","18","RNAV",,"3200","714","N",
+"CNX","36","ILS(LOC)",,"1200","233","N",
+"CRK","20","RNAV",,"900M","278","N",
+"CRK","02","RNAV",,"900M","315","N",
+"CRK","02","ILS(CAT Ⅰ)",,"800M","255","N",
+"CRK","20","ILS(CAT Ⅰ)",,"800M","258","N",
+"CSX","36L","RNAV","550M","800M","200","N",
+"CSX","36R","ILS(CAT Ⅰ)","550M","800M","213","N",
+"CSX","18L","RNAV","550M","800M","200","N",
+"CSX","36R","RNAV","550M","800M","213","N",
+"CSX","18L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CSX","36L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CSX","18R","RNAV","550M","800M","200","N",
+"CSX","18R","ILS(CAT Ⅰ)","550M","800M","200","N",
+"CTS","19R","ILS(LOC)","1000",,"390","N",
+"CTS","19L","ILS(CAT Ⅰ)","700",,"200","N",
+"CTS","19L","ILS(LOC)","1400",,"380","N",
+"CTS","19R","ILS(CAT Ⅲa)","200",,,"N",
+"CTS","19L","RNAV","1600",,"493","N",
+"CTS","19L","ILS(CAT Ⅰ)","700",,"200","N",
+"CTS","01R","ILS(CAT Ⅰ)","550M",,"200","N",
+"CTS","19R","ILS(CAT Ⅲb)","100",,,"N",
+"CTS","19L","VOR","1600",,"550","N",
+"CTS","01L","ILS(CAT Ⅰ)","550",,"200","N",
+"CTS","19R","VOR","1200",,"550","N",
+"CTS","19R","ILS(CAT Ⅱ)","300",,"100","N",
+"CTS","19R","ILS(CAT Ⅰ)","550",,"200","N",
+"CTS","19L","ILS(LOC)","1400",,"380","N",
+"CTS","01R/19L","TAKE OFF","400M",,,"N",
+"CTS","01L/19R","TAKE OFF","150M",,,"N",
+"CTS","01R","ILS(CAT Ⅰ)","550",,"200","N",
+"CTS","01L","ILS(LOC)","1000",,"388","N",
+"CXR","20R","VOR",,"3400M","614FT","Y","CIG 660FT REQD"
+"CXR","20R","RNAV",,"3400M","564FT","Y","CIG 610FT REQD"
+"CXR","20L","VOR",,"3000M","626FT","Y","CIG 660FT REQD"
+"CXR","02L","ILS(CAT Ⅰ)",,"1600M","315FT","Y","CIG 350FT REQD"
+"CXR","20L","RNAV",,"2800M","496FT","Y","CIG 500FT REQD "
+"CXR","02R","ILS(CAT Ⅰ)","900M","1000M","335FT","Y","CIG 350FT REQD"
+"CXR","02R","RNAV",,"2300M","510FT","Y","CIG 510FT REQD"
+"CXR","20L","ILS(CAT Ⅰ)",,"1800M","352FT","Y","CIG 400FT REQD"
+"CXR","02L","RNAV",,"3400M","580FT","Y","CIG 600FT REQD"
+"DAC","32","VOR","N/A","2800","653","N",
+"DAC","14","NDB","N/A","2800","523","N",
+"DAC","32","VOR DME","N/A","2800","453","N",
+"DAC","14","VOR DME","N/A","2800","403","N","VOR/DME OR VOR (VIS 동일, VOR APP 경우 DH 40' 높음)"
+"DAC","14","ILS(CAT Ⅰ)","600","800","223","N",
+"DAC","32","RNAV","N/A","1400","307","N","RNP APP"
+"DAC","32","VOR DME","N/A","1200","293","N",
+"DAC","14","VOR DME","600","800","223","N",
+"DAC","32","VOR DME","N/A","1200","293","N","ILS VOR/DME"
+"DAC","14","RNAV","N/A","800","303","N","RNP APP"
+"DAD","35L","ILS(CAT Ⅰ)","960m","1100m","270","Y",
+"DAD","35L","VOR",,"2400m","560","Y",
+"DAD","17R","VOR",,"3300m","660","Y",
+"DAD","17L","VOR",,"3300m","660","Y",
+"DAD","35R","VOR",,"2400m","560","Y",
+"DAD","35R","ILS(CAT Ⅰ)","720m","1000m","280","Y",
+"DMK","03R","VOR",,"2400M","525","N",
+"DMK","21R","VOR",,"1800M","513","N",
+"DMK","03/21","TAKE OFF","250M",,,"N","RCLM OR RL"
+"DMK","21R","RNAV",,"1200M","363","N",
+"DMK","03L/21R","TAKE OFF","200M",,,"N","RL&CL"
+"DMK","21L","ILS(LOC)",,"1200M","463","N",
+"DMK","03L","ILS(CAT Ⅰ)",,"1200M","213","N",
+"DMK","21R","ILS(LOC)",,"1200M","463","N",
+"DMK","21L","RNAV",,"1200M","343","N",
+"DMK","21L","VOR",,"2000M","513","N",
+"DMK","21R","ILS(CAT Ⅱ)","350M",,"150","N",
+"DMK","21R","ILS(CAT Ⅰ)","550M","800M","213","N",
+"DMK","03L","ILS(LOC)",,"2400M","463","N",
+"DMK","21L","ILS(CAT Ⅰ)",,"800M","213","N",
+"DPS","27","RNAV",,"800","286","N","RNP"
+"DPS","27","ILS(CAT Ⅰ)",,"800","253","N",
+"DPS","09","RNAV",,"1500","266","N","RNP"
+"DPS","27","VOR",,"1100","356","N",
+"DPS","09","VOR",,"2000","356","N",
+"DSN","31","ILS(CAT Ⅰ)","550M","800M","246","N",
+"DSN","13","ILS(CAT Ⅰ)","550M","800M","230","N",
+"DSN","13","RNAV","550M","800M","230","N",
+"DSN","13","VOR DME",,"2000M","458","N",
+"DSN","31","RNAV","550M","800M","246","N",
+"DSN","31","VOR DME",,"1900M","472","N",
+"DVO","05","RNAV",,"1600M","520","N",
+"DVO","23","VOR DME",,"1600M","327","N",
+"DVO","23","RNAV",,"2000M","427","N",
+"DVO","23","ILS(CAT Ⅰ)",,"800M","258","N",
+"DVO","05","VOR DME",,"1600M","460","N",
+"DVO","05","ILS(CAT Ⅰ)",,"1000M","302","N",
+"DYG","08","ILS(CAT Ⅰ)","550M","800M","200","N",
+"DYG","26","RNAV","800M","800M","295","N",
+"DYG","26","ILS(CAT Ⅰ)","800M","800M","295","N",
+"DYG","08","RNAV","550M","800M","246","N",
+"DYG","08","VOR DME",,"5000M","1507","N",
+"DYG","26","VOR DME",,"4500M","985","N",
+"FOC","21","VOR DME",,"2800M","584","N",
+"FOC","03","VOR DME",,"2200M","490","N",
+"FOC","21","RNAV","550M","800M","213","N",
+"FOC","03","ILS(CAT Ⅰ)","550M","800M","213","N",
+"FOC","03","RNAV","550M","800M","213","N",
+"FOC","21","ILS(CAT Ⅰ)","550M","800M","213","N",
+"FSZ","12","RNAV",,"1400M","396","N","AUTH REQ FOR RNP AR"
+"FSZ","12/30","TAKE OFF",,"400M",,"N",
+"FSZ","30","ILS(CAT Ⅰ)","550","550","200","N",
+"FSZ","30","VOR","800M",,"287","N",
+"FUK","16","ILS(LOC)","1200",,"575","N",
+"FUK","16/34","TAKE OFF","400M",,,"N",
+"FUK","16","RNAV","1200",,"475","N",
+"FUK","16","VOR","1400M",,"615","N",
+"FUK","34","RNAV","1400",,"788","N",
+"FUK","16","ILS(CAT Ⅰ)","550",,"200","N",
+"FUK","34","ILS(LOC)","1400",,"650","N",
+"FUK","34","ILS(CAT Ⅰ)","550",,"200","N",
+"GMP","RWY 14R","ILS(CAT Ⅱ)","300m",,"100","N",
+"GMP","RWY 14R","RNAV",,"1200m","416","N",
+"GMP","RWY 32R","VOR",,"2500m","698","N",
+"GMP","RYW 14R","ILS(CAT Ⅰ)","550m","800m","200","N",
+"GMP","RWY 32L","RNAV",,"1900m","569","N",
+"GMP","RWY 32L","ILS(CAT Ⅰ)","720m","800m","200","N",
+"GMP","RWY 14R","ILS(CAT Ⅲa)","175m",,,"N",
+"GMP","TAKE OFF","TAKE OFF","125m","400m",,"N",
+"GMP","RWY 32R","ILS(CAT Ⅰ)","720m","800m","200","N",
+"GMP","RWY 14L","RNAV",,"1200m","412","N",
+"GMP","RWY 14L","ILS(CAT Ⅰ)","720m","800m","200","N",
+"GMP","RWY 32R","RNAV",,"1800m","558","N",
+"GMP","RWY 32L","VOR",,"2500m","699","N",
+"GUM","06R","RNAV",,"3200","722","N","GPS"
+"GUM","06L","VOR DME",,"1600","504","N",
+"GUM","06L","RNAV",,"1200","464","N","GPS"
+"GUM","24R","NDB DME",,"4000","915","N",
+"GUM","06R","ILS(CAT Ⅰ)",,"1200","319","N",
+"GUM","24L","RNAV",,"4400","810","N","RNP"
+"GUM","06R","RNAV",,"800","250","N","RNP"
+"GUM","24R","RNAV",,"4000","709","N","RNP"
+"GUM","24R","RNAV",,"4000","855","N","GPS"
+"GUM","24L","RNAV",,"4400","887","N","GPS"
+"GUM","24R","VOR DME",,"4000","875","N",
+"GUM","06R","ILS(LOC)",,"2400","722","N",
+"GUM","06L","ILS(CAT Ⅰ)",,"800","272","N",
+"GUM","06L","RNAV",,"800","255","N","RNP"
+"GUM","06L","ILS(LOC)",,"3200","860","N",
+"HAK","27","ILS(CAT Ⅰ)","550M","800M","200","N",
+"HAK","09","NDB DME",,"3200M","706","N",
+"HAK","09","ILS(CAT Ⅰ)","550M","800M","200","N",
+"HAK","27","NDB DME",,"3200M","698","N",
+"HAK","09/27","TAKE OFF","200M",,,"N",
+"HAN","11L","NDB",,"2000m","490","Y","CIG 500FT"
+"HAN","11R/29L","TAKE OFF","400M","500M",,"N",
+"HAN","11L","ILS(CAT Ⅰ)",,"800m","200","Y","CIG200FT"
+"HAN","11R","ILS(CAT Ⅰ)","550m","800m","200","Y","CIG 200FT"
+"HAN","29L","ILS(CAT Ⅰ)",,"1100m","269","Y","CIG 280FT"
+"HAN","29R","VOR",,"2400m","460","Y","CIG 460FT"
+"HAN","29R","NDB",,"3600m","620","Y","CIG 820FT"
+"HAN","11R","VOR",,"2000m","462","Y","CIG 460FT"
+"HAN","29L","VOR",,"2400m","460","Y","CIG 460FT"
+"HAN","11L/29R","TAKE OFF",,"500M",,"N",
+"HAN","11L","VOR",,"2400m","460","Y","CIG 460FT"
+"HAN","11R","ILS(CAT Ⅱ)","400m",,"132","Y","CIG140FT"
+"HFE","33","ILS(CAT Ⅰ)","550M","800M","200","N",
+"HFE","15","VOR DME","2200M",,"490","N",
+"HFE","15/33","TAKE OFF","400M","800M",,"N",
+"HFE","33","VOR DME","2200M",,"482","N",
+"HFE","15","ILS(CAT Ⅰ)","550M","800M","200","N",
+"HIJ","10","VOR","1200",,"528","N",
+"HIJ","10","ILS(CAT Ⅲa)","100","-","-","N",
+"HIJ","28","RNAV","1400",,"373","N",
+"HIJ","28","VOR","1400",,"413","N",
+"HIJ","10","ILS(CAT Ⅰ)","550",,"200","N",
+"HIJ","10","ILS(CAT Ⅱ)","-","-","-","N","NOT APPLICABLE"
+"HKD","12","RNAV","1400M",,"368","N","LNAV/VNAV "
+"HKD","12","ILS(CAT Ⅰ)","700M",,"207","N",
+"HKD","30","RNAV",,,"371","N","CMV 1000M"
+"HKD","30","VOR DME",,,"618","N","CMV 1200M"
+"HKD","12","VOR DME","1400M",,"438","N",
+"HKG","25R","ILS(CAT Ⅲa)","175m",,"50","N",
+"HKG","07L","VOR",,"2800m","552","N",
+"HKG","07L","RNAV",,"2400m","398","N",
+"HKG","07R","ILS(CAT Ⅱ)","350m",,"100","N",
+"HKG","25L","RNAV",,"2000m","473","N",
+"HKG","25L","ILS(CAT Ⅱ)","350m",,"100","N",
+"HKG","07R","RNAV",,"2000m","403","N",
+"HKG","25R","ILS(CAT Ⅰ)","550m","800m","200","N",
+"HKG","25R","VOR",,"2400m","472","N",
+"HKG","25R","ILS(CAT Ⅱ)","300m",,"100","N",
+"HKG","07R","ILS(CAT Ⅰ)","550m","800m","200","N",
+"HKG","07L","ILS(CAT Ⅰ)","550m","800m","200","N",
+"HKG","07L","ILS(CAT Ⅱ)","300m",,"100","N",
+"HKG","25R","RNAV",,"2400m","478","N",
+"HKG","25L","ILS(CAT Ⅰ)","550m","800m","200","N",
+"HKT","27","VOR",,"4800m","998","N",
+"HKT","27","RNAV",,"2800m","658","N",
+"HKT","09","VOR",,"4800m","1241","N",
+"HKT","09","RNAV",,"4000m","851","N",
+"HKT","27","ILS(CAT Ⅰ)",,"2200m","458","N",
+"HND","23","LOC DME","1000M",,"419","N","MDH 419'"
+"HND","34L","LOC DME","1200M",,"539","N","MDH 539'"
+"HND","34R","ILS(CAT Ⅱ)","300M",,"100","N","RA 100'"
+"HND","22","ILS(CAT Ⅰ)","550M",,"200","N",
+"HND","16R","RNAV","1200M",,"554","N",
+"HND","23","RNAV","800M",,"275","N",
+"HND","22","LOC DME","1200M",,"579","N","MDH 579'"
+"HND","16L","RNAV","1200M",,"511","N",
+"HND","16L","ILS(CAT Ⅰ)","550M",,"200","N",
+"HND","16L","LOC DME","1200M",,"509","N","MDH 509'"
+"HND","34R","LOC DME","1400M",,"679","N","MDH 679'"
+"HND","16R","LOC DME","1200M",,"549","N","MDH 549'"
+"HND","16R","ILS(CAT Ⅰ)","550M",,"200","N",
+"HND","23","ILS(CAT Ⅰ)","800M",,"328","N",
+"HND","34R","ILS(CAT Ⅰ)","550M",,"200","N",
+"HND","34L","ILS(CAT Ⅰ)","550M",,"200'","N",
+"HND","34R","ILS(CAT Ⅲa)","175M",,,"N",
+"HRB","23","RNAV","550M","800M","200","N",
+"HRB","23","ILS(CAT Ⅰ)","550M","800M","200","N",
+"HRB","23","VOR DME",,"1500M","401","N",
+"HRB","05","ILS(CAT Ⅰ)","550M","800M","200","N",
+"HRB","05","VOR DME",,"1500M","403","N",
+"HRB","05","RNAV","550M","800M","200","N",
+"ICN","RWY 15L","ILS(CAT Ⅰ)","550m","800m","200","N",
+"ICN","15R","RNAV",,"1200m","407","N",
+"ICN","RWY 15L","ILS(CAT Ⅱ)","300m",,"100","N",
+"ICN","34","ILS(CAT Ⅲa)","175m",,,"N",
+"ICN","33R","ILS(CAT Ⅲb)","125m",,,"N",
+"ICN","16","ILS(CAT Ⅲb)","125m",,,"N",
+"ICN","RWY 15L","ILS(CAT Ⅲa)","175m",,,"N",
+"ICN","RWY 16","RNAV",,"1200m","407","N",
+"ICN","RWY 33L","ILS(CAT Ⅲa)","175m",,,"N",
+"ICN","RWY 33L","ILS(CAT Ⅲb)","125m",,,"N",
+"ICN","RWY 33L","ILS(CAT Ⅰ)","550m","800m","200","N",
+"ICN","RWY 15L","RNAV",,"1200m","407","N",
+"ICN","RWY 15L","VOR",,"1600m","437","N",
+"ICN","RWY 15R","ILS(CAT Ⅱ)","300m",,"100","N",
+"ICN","RWY ","ILS(CAT Ⅱ)","300m",,"100","N",
+"ICN","RWY 16","ILS(CAT Ⅰ)","550m","800m","200","N",
+"ICN","RWY 33R","ILS(CAT Ⅱ)","300m",,"100","N",
+"ICN","RWY 33R","RNAV",,"1200m","407","N",
+"ICN","RWY 15L","ILS(CAT Ⅲb)","125m",,,"N",
+"ICN","RWY 15R","ILS(CAT Ⅰ)","550m","800m","200","N",
+"ICN","RWY 33L","RNAV",,"1200m","407","N",
+"ICN","RWY 16","ILS(CAT Ⅲa)","175m",,,"N",
+"ICN","33L","ILS(CAT Ⅰ)","550m","800m","200","N",
+"ICN","34","ILS(CAT Ⅱ)","300m",,"100","N",
+"ICN","34","RNAV",,"1200m","407","N",
+"ICN","33R","ILS(CAT Ⅲb)","125m",,,"N",
+"ICN","ALL","TAKE OFF","125","400",,"N",
+"ICN","33R","ILS(CAT Ⅰ)","550m","800m","200","N",
+"ICN","33R","ILS(CAT Ⅲa)","175m",,,"N",
+"ICN","16","ILS(CAT Ⅱ)","300m",,"100","N",
+"ICN","34","ILS(CAT Ⅲb)","25m",,,"N",
+"ICN","15R","ILS(CAT Ⅲa)","175m",,,"N",
+"ICN","34","ILS(CAT Ⅰ)","550m","800m","200","N",
+"ICN","33R","VOR",,"1600m","487","N",
+"IWO","07","NDB","1000",,"209","N","PAR 07"
+"IWO","07","NDB","1800",,"359","N","ASR 25"
+"IWO","25","NDB",,"1800","372","N","ASR 25"
+"IWO","25","NDB",,"1000","200","N","PAR 25"
+"JMU","06","NDB",,"3900M","1108","N","CIRCLE TO LAND 사용시"
+"JMU","06/24","TAKE OFF","400M","800M",,"N","RL(NILL시 RVR 500M, VIS 800M)"
+"JMU","06","NDB DME",,"3900M","828","N",
+"JMU","06","VOR DME",,"3800m","808","N",
+"JMU","06 X/Y","LOC DME","1900M","1900M","478","N",
+"JMU","06 X/Y","ILS(CAT Ⅰ)","550M","800M","200","N",
+"JMU","24","VOR DME",,"2500m","500","N",
+"JMU","24","NDB DME",,"2500m","500","N",
+"KCH","25","ILS(CAT Ⅰ)",,"800M","203","N",
+"KCH","25","RNAV",,"3000M","540","N",
+"KCH","25","VOR DME",,"1400M","408","N",
+"KCH","07","VOR DME",,"2400M","442","N",
+"KCH","07","RNAV",,"3200M","586","N",
+"KHH","09","RNAV",,"1700m","532ft","N",
+"KHH","09","LOC DME","1500","1500m","479ft","N","GS OUT"
+"KHH","27","ILS(CAT Ⅰ)","750M","800M","282ft","N",
+"KHH","27","RNAV",,"1700m","524ft","N",
+"KHH","09/27","TAKE OFF","350m","350m",,"N","RL, CL & ANY 2 RVR"
+"KHH","09","NDB",,"2000m","599ft","N",
+"KHH","27","NDB",,"2100m","608ft","N",
+"KHH","09","ILS(CAT Ⅰ)","550m","800m","230ft","N",
+"KHH","09/27","TAKE OFF","1600m","1600m",,"N","NIL (Day Only)"
+"KHH","09/27","TAKE OFF","500m","500m",,"N","RL & CL OR RL & RCLM"
+"KHH","27","LOC DME",,"2100m","608ft","N",
+"KIX","06R","ILS(CAT Ⅱ)","300M",,"100","N",
+"KIX","24R","RNAV","1000M",,"377","N",
+"KIX","24L","ILS(CAT Ⅱ)","300M",,"100","N",
+"KIX","06R","ILS(CAT Ⅰ)","550M",,"200","N",
+"KIX","06L","RNAV","1000M",,"345","N",
+"KIX","24R","ILS(CAT Ⅱ)","300M",,"100","N",
+"KIX","24R","ILS(LOC)","800M",,"273","N",
+"KIX","24L","VOR","1000M",,"433","N",
+"KIX","06R","ILS(LOC)","1000M",,"384","N",
+"KIX","24R","ILS(CAT Ⅰ)","550M",,"200","N",
+"KIX","06L","ILS(CAT Ⅱ)","300M",,"100","N",
+"KIX","06L","ILS(CAT Ⅰ)","550M",,"200","N",
+"KIX","06R","VOR","1000M",,"415","N",
+"KIX","24L","ILS(CAT Ⅰ)","550M",,"200","N",
+"KIX","24L","ILS(LOC)","1000M",,"373","N",
+"KIX","ALL","TAKE OFF","150M",,,"N",
+"KIX","06L","ILS(LOC)","800M",,"273","N",
+"KKJ","18","ILS(CAT Ⅰ)","550",,"200","N",
+"KKJ","18","VOR DME","1200",,"479","N",
+"KKJ","18","RNAV","1000",,"300","N",
+"KKJ","36","RNAV",,"1400","306","N",
+"KKJ","18/36","TAKE OFF",,"400M",,"N",
+"KKJ","18","ILS(LOC)","1200",,"479","N",
+"KLO","ALL","TAKE OFF","250M",,,"N",
+"KLO","23","RNAV",,"1500M","303","N",
+"KLO","23","VOR DME",,"1600M","582","N",
+"KLO","05","RNAV",,"1400M","299","N",
+"KMJ","07","VOR","1000M",,"309","N",
+"KMJ","07","ILS(CAT Ⅱ)","450M",,,"N",
+"KMJ","07","ILS(CAT Ⅰ)","550M",,"200","N",
+"KMJ","07","ILS(CAT Ⅲa)","200M",,,"N",
+"KMJ","25","RNAV","1400M",,"300","N",
+"KMJ","07","ILS(LOC)","1000M",,"309","N",
+"KMJ","ALL","TAKE OFF","150M",,,"N",
+"KOJ","16","RNAV","1800M",,"719","N",
+"KOJ","16/34","TAKE OFF",,"400M",,"N",
+"KOJ","34","ILS(LOC)","1000",,"381","N",
+"KOJ","34","VOR DME","1200",,"491","N",
+"KOJ","34","ILS(CAT Ⅰ)","550",,"200","N",
+"KPO","10","VOR DME","1800M",,"544FT","Y","CIG 600FT"
+"KPO","28","VOR DME",,"4000M","1050FT","Y","CIG 1100FT"
+"KPO","10","RNAV",,"2600M","620FT","Y","CIG 700FT"
+"KPO","28","RNAV",,"4800M","1290FT","Y","CIG 1300FT"
+"KPO","10","LOC DME","1600M",,"524FT","Y","CIG 600FT"
+"KUV","TAKE OFF","TAKE OFF",,,,"N","Adequate VIS ref 1/4sm(400m),  Standard 1SM(1600m)"
+"KUV","RWY 36","RNAV","5000ft","1sm",,"Y"," RVR 5000ft(1500m), 1sm(1600m)"
+"KUV","RWY 18","ILS(CAT Ⅰ)","2400ft","1/2sm","200","Y"," RVR 2400ft(750m), 1/2sm(800m), CIG 200ft required"
+"KUV","RWY 36","ILS(CAT Ⅰ)","2400ft","1/2sm","200","Y"," RVR 2400ft(750m), 1/2sm(800m), CIG 200ft required"
+"KUV","RWY 36","ILS(CAT Ⅰ)","2400ft","1/2sm","200","Y"," RVR 2400ft(750m), 1/2sm(800m), CIG 200ft required"
+"KUV","RWY 36","VOR DME","5000ft","1sm",,"Y"," RVR 5000ft(1500m), 1sm(1600m)"
+"KWJ","RWY 04R","LOC DME","5000ft","1600m","474","Y","CIG 500ft required"
+"KWJ","RWY04L","RNAV","2400ft","800m","273","Y","CIG 300ft required"
+"KWJ","RWY 22R","VOR DME",,"2800m","692","Y","CIG 700ft required"
+"KWJ","RWY22L","RNAV",,"2200m","520","Y","CIG 600ft required"
+"KWJ","RWY 22L","VOR DME",,"2800m","692","Y","CIG 700ft required"
+"KWJ","RWY22R","RNAV",,"2200m","520","Y","CIG 600ft required"
+"KWJ","RWY 04L","VOR DME","5500ft","1600m","514","Y","CIG 600ft required"
+"KWJ","TAKE OFF","TAKE OFF",,,,"Y","Available landing Minimum"
+"KWJ","RWY 22L","LOC DME",,"1 1/4sm","512","Y","CIG 600ft required"
+"KWJ","RWY 04R","ILS(CAT Ⅰ)","2400ft","800m","200","Y","CIG 200ft required"
+"KWJ","RWY04R","RNAV","2400ft","800m","273","Y","CIG 300ft required"
+"KWJ","RWY 04R","VOR DME","5500ft","1600m","514","Y","CIG 600ft required"
+"KWL","01","VOR DME",,"3200m","700ft","N",
+"KWL","19","VOR DME",,"3200m","700ft","N",
+"KWL","01","ILS(CAT Ⅰ)","550m","800m","200ft","N","승인된 HUD or AP or FD 사용 시 RVR 550m 적용 가능"
+"KWL","ALL","TAKE OFF","400M","800M",,"N",
+"KWL","19","ILS(CAT Ⅰ)","550m","800m","200ft","N","승인된 HUD or AP or FD 사용 시 RVR 550m 적용 가능"
+"MFM","16","RNAV",,"3600m","700","N","RNAV LOC DME, MDH 700'"
+"MFM","34","ILS(CAT Ⅱ)","350m",,"100","N",
+"MFM","34","ILS(LOC)",,"1200M","290","N","MDH 290'"
+"MFM","34","ILS(CAT Ⅰ)",,"1200m","200","N",
+"MFM","16","RNAV",,"5000M","950","N","LNAV, MDH 950'"
+"MFM","34","RNAV",,"2700m","520","N",
+"MFM","34","VOR DME",,"2400m","530","N","MDH 530'"
+"MFM","16","LOC DME",,"3600m","700","N","MDH 700'"
+"MNL","24","ILS(CAT Ⅰ)",,"800m","300","N",
+"MNL","06","RNAV",,"1200m","394","N",
+"MNL","24","RNAV",,"3200m","605","N",
+"MNL","06","VOR",,"1200m","474","N",
+"MNL","13","VOR DME",,"3700m","634","N",
+"MNL","24","VOR",,"2800m","795","N",
+"MNL","06","ILS(CAT Ⅰ)",,"800m","264","N",
+"MWX","RWY 01","ILS(CAT Ⅰ)","550m","800m","200","N","'24.02.21 1600Z~'24.07.20 1500Z 사용 불가"
+"MWX","RWY 19","ILS(CAT Ⅰ)","550m","800m","200","N","~'24.02.20 1600Z 까지 사용 불가 (A1731/23), '24.02.21 1600Z~'24.07.20 1500Z 동안 ALS U/S로 VIS 1200M로 상향"
+"MWX","RWY 01","VOR",,"3300m","878","N",
+"MWX","RWY 01","RNAV",,"2700m","758","N",
+"MWX","RWY 19","RNAV",,"1200m","409","N",
+"MWX","RWY 19","VOR",,"2100m","539","N",
+"MWX","TAKE OFF","TAKE OFF","400m","1200ft",,"N",
+"MYJ","32","ILS(CAT Ⅰ)","CIRCLING","4800M","1000'","N","CIRCLE TO LAND, VIS 4800M, MDH 1000' (REF TO FOM 4.2.2.2 HIGHER MIN APPLIED) "
+"MYJ","32","RNAV",,"CMV 1600M","467'","N","RNP AR (AUTH REQED)"
+"MYJ","14","ILS(CAT Ⅰ)","1000M",,"200'","Y",
+"MYJ","14","ILS(LOC)",,"CMV 2000M","457'","Y",
+"MYJ","14","VOR",,"CMV 2000M","457'","Y",
+"MYJ","14","RNAV","2000M",,"480'","N",
+"MYJ","14/32","TAKE OFF","400M","400M",,"Y",
+"NGO","36","VOR","1200",,"508","N",
+"NGO","36","ILS(CAT Ⅲb)","100",,,"N",
+"NGO","36","ILS(CAT Ⅱ)","300",,"100","N",
+"NGO","18","ILS(CAT Ⅰ)","550",,"200","N",
+"NGO","18","ILS(CAT Ⅱ)","300",,"100","N",
+"NGO","18","ILS(LOC)","1200",,"508","N",
+"NGO","36","ILS(CAT Ⅲa)","200",,,"N",
+"NGO","36","ILS(CAT Ⅰ)","550",,"200","N",
+"NGO","ALL","TAKE OFF","150M",,,"N",
+"NGO","36","ILS(LOC)","1200",,"508","N",
+"NGO","18","VOR","1200",,"508","N",
+"NGS","RWY32","RNAV","800M",,"292'","N",
+"NGS","RWY32","VOR","1400M",,"862'","N",
+"NGS","RWY14","RNAV","CMV 1200M",,"256'","N",
+"NGS","RWY14","VOR","CMV 1600M",,"482'","N",
+"NGS","RWY32","ILS(CAT Ⅰ)","550M",,"200'","N",
+"NNG","05","ILS(CAT Ⅰ)","550M","800M","200","N",
+"NNG","23","VOR DME",,"2200M","525","N",
+"NNG","05/23","TAKE OFF","400M","800M",,"N",
+"NNG","05","VOR DME",,"1500M","403","N",
+"NNG","23","ILS(CAT Ⅰ)","550M","800M","200","N",
+"NRT","16R","ILS(CAT Ⅱ)","300",,"100","N",
+"NRT","16L","ILS(LOC)","1000",,"375","N","RVR 1400M(~UFN, AIP SUP 148/25)"
+"NRT","34L","ILS(CAT Ⅰ)","550",,"200","N",
+"NRT","34L","ILS(LOC)","1000",,"395","N",
+"NRT","34R","ILS(LOC)","1000",,"375","N",
+"NRT","16R","ILS(LOC)","1000",,"375","N",
+"NRT","34R","ILS(CAT Ⅰ)","600",,"250","N",
+"NRT","16R","TAKE OFF","150M",,,"N",
+"NRT","16L","RNAV","1000",,"355","N","RVR 1400M(~UFN, AIP SUP 148/25)"
+"NRT","16R","ILS(CAT Ⅰ)","550",,"200","N",
+"NRT","16L","VOR","1000",,"375","N",
+"NRT","34R","TAKE OFF","400M",,,"N",
+"NRT","34L","TAKE OFF","400M",,,"N",
+"NRT","16R","ILS(CAT Ⅲa)","175M",,,"N",
+"NRT","16R","VOR","1000",,"405","N",
+"NRT","16L","ILS(CAT Ⅰ)","550",,"200","N","RVR 700M(~UFN, AIP SUP 148/25)"
+"NRT","34R","VOR","1200",,"565","N",
+"NRT","34L","VOR","1000",,"405","N",
+"NRT","16L","TAKE OFF","1600M",,"200","N",
+"NTG","36","ILS(CAT Ⅰ)","550M","800M","213","N",
+"NTG","18","ILS(CAT Ⅰ)","550M","800M","213","N",
+"NTG","36","NDB",,"4800M","584","N",
+"NTG","18/36","TAKE OFF","500M","800M",,"N",
+"NTG","36","VOR DME",,"2200M","534","N",
+"NTG","18","VOR DME",,"1800M","444","N",
+"OKA","18L","RNAV","1400M",,"419","N",
+"OKA","36R","RNAV","1000M",,"401","N",
+"OKA","18","VOR",,"3200M","609","N","CIRCLE TO LAND, MDH 609'"
+"OKA","36L","ILS(LOC)","1000M",,"419","N","MDH 419'"
+"OKA","18R","ILS(LOC)","1200M",,"479","N","MDH 479'"
+"OKA","36L","RNAV","1000M",,"356","N",
+"OKA","18R","ILS(CAT Ⅰ)","600M",,"247","N",
+"OKA","36R","ILS(CAT Ⅰ)","650M",,"283","N",
+"OKA","36L","ILS(CAT Ⅰ)","550M",,"200","N",
+"OKA","36","VOR","3200M",,"609","N","CIRCLE TO LAND, MDH 609'"
+"OKA","18R","RNAV","1200M",,"474","N",
+"OKA","36R","ILS(LOC)","1000M",,"399","N","MDH 399'"
+"PEK","18L","ILS(CAT Ⅰ)","550m","800m","200'","N",
+"PEK","36L","ILS(CAT Ⅰ)","550m","800m","200'","N",
+"PEK","18R","ILS(CAT Ⅰ)","550m","800m","213'","N",
+"PEK","36R","ILS(CAT Ⅱ)","300m",,"100'","N",
+"PEK","ALL","TAKE OFF","400M",,,"N",
+"PEK","36R","ILS(CAT Ⅲa)","175m",,"50'","N",
+"PEK","01","ILS(CAT Ⅱ)","300m",,"100'","N",
+"PEK","19","ILS(CAT Ⅰ)","550m","800m","200'","N",
+"PEK","01","ILS(CAT Ⅰ)","550m","800m","100'","N",
+"PEK","36R","ILS(CAT Ⅰ)","550m","800m","200'","N",
+"PKX","35L","ILS(CAT Ⅰ)","550m","800m","200'","N",
+"PKX","35L","ILS(CAT Ⅱ)","300m",,"100'","N",
+"PKX","35R","ILS(CAT Ⅰ)","550m","800m","200'","N",
+"PKX","01L","ILS(CAT Ⅰ)","550m","800m","200'","N",
+"PKX","29R","ILS(CAT Ⅰ)","1400m","1400m","394'","N","BY ATC"
+"PKX","01L","ILS(CAT Ⅱ)","300m",,"100'","N",
+"PKX","01L","ILS(CAT Ⅲa)","175m",,,"N",
+"PKX","19R","ILS(CAT Ⅰ)","550m","800m","200'","N",
+"PKX","17R","ILS(CAT Ⅰ)","550m","800m","200'","N",
+"PKX","17L","ILS(CAT Ⅰ)","550m","800m","230'","N",
+"PQC","28","ILS(CAT Ⅰ)",,"1100M","364'","Y","CEILING 380' LOC (GS OUT) 680' - 2000M"
+"PQC","10","VOR",,"3600M","737'","Y","CELING 760'"
+"PQC","28","VOR",,"5000M","1327'","Y","CELING 1330'"
+"PQC","10","ILS(CAT Ⅰ)",,"1400M","660'","Y","CEILING 670' LOC (GS OUT) 760' - 2000M"
+"PUS","RWY 36L","LOC DME","3500ft","5/8sm","388","Y","RVR 3500ft(1100m), 5/8sm (2600m), CIG 400ft required"
+"PUS","RWY 36L","VOR DME",,"3sm","1448","Y","3sm(4800m), CIG 1500ft required"
+"PUS","RWY 18L/R","VOR DME",,"3sm","1687","Y","CIRCLE TO LAND, 3sm(4800m), CIG 1700ft required"
+"PUS","RWY 36R","ILS(CAT Ⅰ)","1800ft","1/2sm","200","Y","RVR 1800ft(550m), 1/2sm(800m), CIG 200ft required"
+"PUS","RWY 36L","ILS(CAT Ⅱ)","1200ft",,"100","N","RVR 1200ft(365m), RA 102'"
+"PUS","RWY 36R","LOC DME","4000ft","3/4sm","413","Y","RVR4000ft (1200m), 3/4sm (1200m), CIG 500ft required"
+"PUS","RWY 36L","RNAV","4500ft","7/8sm","408","Y"," RVR4500ft (1350m), 7/8sm (3000m), CIG 500ft required"
+"PUS","RWY 36L","ILS(CAT Ⅰ)","1800ft","1/2sm","200","Y","RVR 1800ft(550m), 1/2sm(800m), CIG 200ft required"
+"PUS","RWY 36R","VOR DME",,"3sm","1453","Y","CIG 1500ft required"
+"PUS","RWY 36R","RNAV","5500ft","1600M","413","Y","RVR 1676M(5500FT), CIG 500ft required"
+"PUS","TAKE OFF","TAKE OFF",,"350m",,"N",
+"PVG","RWY35L","ILS(CAT Ⅰ)","550M","800M","200'","N",
+"PVG","RWY35R","ILS(CAT Ⅰ)","550M","800M","200'","N",
+"PVG","RWY35R","ILS(CAT Ⅱ)","300M",,"100'","N",
+"PVG","RWY35R","VOR DME",,"2200M","490'","N","(FOM 4.2.2.2) CDFA 접근하지 않는 경우 RVR에 400M 더하여 기상최저치 적용 (VIS의 경우 더하지 않고 그대로 적용)"
+"PVG","RWY17L","ILS(CAT Ⅱ)","300M",,"100'","N",
+"PVG","RWY17L","ILS(CAT Ⅰ)","550M","800M","200'","N",
+"PVG","RWY17R","ILS(CAT Ⅰ)","550M","800M","200'","N",
+"PVG","RWY16L","ILS(CAT Ⅰ)","550M","800M","200'","N",
+"PVG","RWY17L","VOR DME",,"200M","450'","N","(FOM 4.2.2.2) CDFA 접근하지 않는 경우 RVR에 400M 더하여 기상최저치 적용 (VIS의 경우 더하지 않고 그대로 적용)"
+"PVG","RWY34R","ILS(CAT Ⅰ)","550M","800M","200'","N",
+"PVG","RWY34L","ILS(CAT Ⅲa)","175M",,"50'","N",
+"PVG","RWY34L","ILS(CAT Ⅱ)","300M",,"100'","N",
+"PVG","RWY34L","ILS(CAT Ⅰ)","550M","800M","200'","N",
+"PVG","RWY16R","ILS(CAT Ⅰ)","550M","800M","200'","N",
+"RSU","RWY 35","ILS(LOC)","750","800","203","N",
+"RSU","RWY 17","ILS(CAT Ⅰ)","550","800","200","N",
+"RSU","RWY 17","RNAV",,"3300","882","N",
+"RSU","RWY 17","VOR",,"3300","712","N",
+"RSU","TAKE OFF","TAKE OFF","400","400",,"N",
+"RSU","RWY 35","VOR",,"5000","1309","N",
+"RSU","RWY 35","RNAV",,"4400","1039","N",
+"SGN","25R","RNAV",,"1300M","348","Y","CIG 330FT"
+"SGN","25R","NDB",,"2500M","478","Y","CIG 480FT"
+"SGN","07R","NDB",,"2800M","536","Y","CIG 540FT"
+"SGN","25R","VOR",,"2800","478","Y","CIG 480FT"
+"SGN","25L","VOR",,"2000","518","Y","CIG 510FT"
+"SGN","07/25","TAKE OFF",,"500M",,"N",
+"SGN","07L","VOR",,"2200","431","Y","CIG 430FT"
+"SGN","07R","VOR",,"2200M","426","Y","CIG 420FT"
+"SGN","25L","NDB",,"1600","398","Y","CIG 400FT"
+"SGN","07R","RNAV",,"1700M","338","Y","CIG 370FT"
+"SGN","07L","RNAV",,"1500M","325","Y","CIG 350FT"
+"SGN","07R","ILS(CAT Ⅰ)",,"1200M","207","Y","CIG 270FT"
+"SGN","25L","ILS(CAT Ⅰ)","550M","800M","200","Y","CIG 330FT"
+"SGN","25L","RNAV",,"1400M","365","Y","CIG 370FT"
+"SIN","20C","ILS(CAT Ⅱ)","350",,"102","Y",
+"SIN","20C","VOR DME","1500","1600","565","N",
+"SIN","02C","ILS(LOC)","720","800","200","Y","ILS DME"
+"SIN","20R ","RNAV",,"2800","677","Y",
+"SIN","02L","ILS(CAT Ⅱ)","350",,"104","Y",
+"SIN","02L","ILS(CAT Ⅰ)","550","800","200","N",
+"SIN","20C","RNAV",,"1600","475","Y",
+"SIN","20C","ILS(CAT Ⅰ)","550","800","200","N",
+"SIN","20R","ILS(LOC)","720","800","200","Y","ILS DME"
+"SIN","02L","RNAV",,"1400","428","Y",
+"SIN","02C","RNAV",,"1200","346","Y",
+"SJW","33","NDB DME",,"2900m","619'","N",
+"SJW","33","VOR DME",,"2900m","619'","N",
+"SJW","15","VOR DME",,"2700m","597'","N",
+"SJW","15","NDB",,"4300m","857'","N",
+"SJW","15","ILS(CAT Ⅰ)","550m","800m","200","N",
+"SJW","15","NDB DME",,"2700m","597'","N",
+"SJW","33","NDB",,"3700m","749'","N",
+"SJW","33","ILS(CAT Ⅰ)","550m","800m","200","N",
+"SPN","25","NDB",,"1 3/8SM","510","N","NDB DME"
+"SPN","07","NDB",,"1 1/2SM","685","N","NDB DME Y, RAIL/ALS OUT 2SM"
+"SPN","25","RNAV",,"1 1/8SM","390","N",
+"SPN","07","RNAV",,"1/2SM","305","N",
+"SPN","07","NDB",,"1 1/8SM","545","N","NDB DME Z, RAIL/AIL OUT 1 5/8SM"
+"SPN","07/25","TAKE OFF",,"1/4SM",,"N","with Adequate Vis Ref."
+"SPN","07","ILS(CAT Ⅰ)",,"1/2SM","200","N","RAIL/ALS OUT 3/4SM"
+"SWA","04","RNAV","550M","800M","200","N",
+"SWA","22","ILS(CAT Ⅰ)","550M","800M","200","N",
+"SWA","22","RNAV","550M","800M","200","N",
+"SWA","04","ILS(CAT Ⅰ)","550M","800M","200","N",
+"SWA","22","VOR DME",,"2500M","583","N",
+"SWA","04","VOR DME",,"2600M","589","N",
+"SYX","08","ILS(CAT Ⅰ)","550M","800M","200","N",
+"SYX","26","TAKE OFF",,"5000M","300M","N",
+"SYX","08","TAKE OFF","400M","800M",,"N",
+"SYX","26","VOR DME",,"4600m","932","N",
+"SYX","26","ILS(CAT Ⅰ)","550m","800m","200","N",
+"SYX","08","VOR DME",,"5000m","1569","N",
+"TAE","TAKE OFF","TAKE OFF",,,,"N","Available landing minimums"
+"TAE","RWY 31L","LOC DME",,"1 3/8sm","622","Y","1 3/8sm(2200m), CIG 700ft required"
+"TAE","RWY 13R","LOC DME",,"3sm","1149","Y","3sm(4800m), CIG 1200ft required"
+"TAE","RWY 31R","VOR DME",,"1 3/4sm","760","Y","1 3/4sm(2800m), CIG 800ft required"
+"TAE","RWY 31L","VOR DME",,"1 3/4sm","762","Y","1 3/4sm(2800m), CIG 800ft required"
+"TAE","RWY 31L","ILS(CAT Ⅰ)","2400ft","1/2sm","200","Y","RVR 2400ft(750m), 1/2sm(800m), CIG 200ft required"
+"TAE","RWY 13R","ILS(CAT Ⅰ)",,"1 1/2sm","546","Y","1 1/2sm(2400m), CIG 600ft required"
+"TAE","RWY 31R","LOC DME",,"1 3/8sm","620","Y","1 3/8sm(2200m), CIG 700ft required"
+"TAG","ALL","TAKE OFF","250M",,,"N",
+"TAG","21","ILS(CAT Ⅰ)",,"900M","278","N",
+"TAG","21","VOR",,"1600M","457","N",
+"TAG","21","RNAV",,"900M","328","N",
+"TAG","03","RNAV",,"1200M","306","N",
+"TAG","03","VOR",,"1200M","395","N",
+"TAG","21","ILS(LOC)",,"800M","377","N",
+"TAK","26","ILS(LOC)","1000M",,"334","N",
+"TAK","08","ILS(CAT Ⅰ)",,"3200M","743","N","CIRCLE TO LAND, MDH 743'"
+"TAK","26","ILS(CAT Ⅰ)","550M",,"200","N",
+"TAK","26","VOR","1200M",,"554","N","MDH 554'"
+"TAO","17","VOR",,"2200m","467","N",
+"TAO","35","ILS(CAT Ⅰ)","550m","800m","200","N",
+"TAO","35","VOR",,"2400m","497","N",
+"TAO","17","ILS(CAT Ⅰ)","550m","800m","200","N",
+"TAO","17/35","TAKE OFF","400M","800M",,"N",
+"TFU","01/02","ILS(CAT Ⅱ)","300M",,"100FT","N","OPSPEC C060 등재 완료"
+"TFU","19/20","ILS(CAT Ⅰ)","550M","800M","200FT","N","HUD OR AP OR FD 사용할 경우 RVR 550M 아닐 경우 800M 적용"
+"TFU","01/02","ILS(CAT Ⅱ)","175M",,"50FT","N","OPSPEC C060 등재 완료"
+"TFU","01/02","ILS(CAT Ⅰ)","550M","800M","200FT","N",
+"TNA","01","RNAV","550M","800M","200","N",
+"TNA","19","RNAV","550M","800M","200","N",
+"TNA","01","ILS(CAT Ⅰ)","550M","800M","200","N",
+"TNA","19","VOR DME",,"2000M","427","N",
+"TNA","19","ILS(CAT Ⅰ)","550M","800M","200","N",
+"TNA","01","VOR DME",,"2000M","424","N",
+"TPE","05R","ILS(CAT Ⅰ)","550m","800m","216","N",
+"TPE","05L","RNAV",,"1500m","476","N",
+"TPE","05L","ILS(CAT Ⅰ)","550m","800m","215","N",
+"TPE","23R","RNAV",,"1400m","447","N",
+"TPE","23L","ILS(CAT Ⅱ)","300m",,"147","N",
+"TPE","23R","ILS(CAT Ⅱ)","300",,"100","N",
+"TPE","05R","ILS(CAT Ⅱ)","300m",,"110","N",
+"TPE","23L","ILS(CAT Ⅰ)","550m","800m","221","N",
+"TPE","23L","RNAV",,"2900m","784","N",
+"TPE","05R","RNAV",,"1600m","503","N",
+"TPE","05L","ILS(CAT Ⅱ)","300m",,"100","N",
+"TPE","23R","ILS(CAT Ⅰ)","550m","800m","215","N",
+"TSN","16R","VOR DME",,"2400M","555","N",
+"TSN","16L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"TSN","34R","ILS(CAT Ⅰ)","550M","800M","200","N",
+"TSN","34L","VOR DME",,"1700M","444","N",
+"TSN","ALL","TAKE OFF","400M",,,"N",
+"TSN","16R","ILS(CAT Ⅰ)","550M","800M","200","N",
+"TSN","34L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"UBN","11","VOR",,"2800M","765'","N",
+"UBN","29","VOR",,"3400M","935'","N",
+"UBN","29","RNAV",,"2400M","605'","N",
+"UBN","11","RNAV",,"2400M","605'","N",
+"UBN","29","ILS(CAT Ⅰ)","600M","900M","276'","N",
+"UBN","29","LOC DME",,"1800M","445'","N",
+"UKB","09","RNAV","800M",,"252FT","N","LNAV/VNAV "
+"UKB","09","ILS(CAT Ⅰ)","550M",,"200FT","N",
+"UKB","09","RNAV","1000M",,"442FT","N","LNAV. MDA 1121FT(1000FT+FE 121FT)"
+"UKB","27","ILS(CAT Ⅰ)","CIRCLING","4800","1000FT","N","HIGHER MINIMA WAS APPLIED (FOM 4.2.2.2 VS APO CHART)"
+"UKB","09","LOC DME","1000M",,"442FT","N","MDA 1121FT(1000FT+FE 121FT)"
+"ULN","32","TAKE OFF",,"800M",,"N",
+"ULN","14","ILS(CAT Ⅰ)",,"2800","771","N","RWY32 ONLY FOR TAKEOFF"
+"ULN","14","VOR DME",,"5000","1270","N",
+"ULN","14","NDB",,"5000M","1760","N",
+"ULN","14","RNAV",,"4200M","1100","N","GNSS"
+"USN","36","VOR",,"2700","732","N","RWY36 PANSOPS( category C )"
+"USN","18","VOR",,"nil","nil","N","RWY18 TERPS( category D )"
+"USN","18","RNAV",,"nil","nil","N","RWY18 TERPS( category D )"
+"USN","36","ILS(CAT Ⅰ)",,"800","218","N","RWY36 PANSOPS( category C )"
+"USN","36","RNAV",,"2700","732","N","RWY36 PANSOPS( category C )"
+"UTP","18","ILS(CAT Ⅰ)",,"1200M","281","N",
+"UTP","18","RNAV",,"1700M","341","N","GNSS"
+"UTP","18","VOR",,"4400M","901","N",
+"UTP","36","NDB",,"3200M","725","N",
+"UTP","18","ILS(LOC)",,"1200M","371","N",
+"UTP","36","RNAV",,"2400M","456","N","GNSS"
+"UTP","18/36","TAKE OFF","250M",,,"N",
+"UTP","36","VOR",,"1200M","376","N",
+"VTE","31","TAKE OFF",,"1600M",,"N",
+"VTE","13","ILS(CAT Ⅰ)","800M","1200M","200","N",
+"VTE","13","ILS(LOC)","800","1200","274","N",
+"VTE","13","LOC DME",,"1600","514","N",
+"VTE","13","RNAV","-","2400","684","N","GNSS"
+"VVO","07R","NDB","1200",,"387","N",
+"VVO","ALL","TAKE OFF",,"200M",,"N",
+"VVO","25L","ILS(CAT Ⅱ)","300",,"100","N","U/S"
+"VVO","25L","NDB","4000",,"1766","N",
+"VVO","07R","VOR DME","1200",,"437","N",
+"VVO","25L","ILS(CAT Ⅰ)","800",,"200","N",
+"VVO","25L","VOR DME","1200",,"406","N",
+"VVO","07R","ILS(CAT Ⅰ)","800",,"200","N",
+"WEH","03","VOR",,"3000m","627","N",
+"WEH","03","RNAV","550M","800M","200","N",
+"WEH","21","VOR",,"3600m","724","N",
+"WEH","21","ILS(CAT Ⅰ)","550M","800m","200","N",
+"WEH","03","ILS(CAT Ⅰ)","550M","800m","200","N",
+"WEH","21","RNAV","550M","800M","200","N",
+"WNZ","03","VOR DME",,"1600M","383","N",
+"WNZ","03","RNAV","550M","800M","200","N",
+"WNZ","03","ILS(CAT Ⅰ)","550M","800M","200","N",
+"WNZ","21","ILS(CAT Ⅰ)","550M","800M","200","N",
+"WNZ","21","RNAV","550M","800M","200","N",
+"WNZ","21","VOR DME",,"1600M","383","N",
+"WUH","ALL","TAKE OFF","400M",,,"N",
+"WUH","04R/22L","TAKE OFF","200M",,,"N",
+"WUH","04R","ILS(CAT Ⅱ)","300M",,"100","N",
+"WUH","04L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"WUH","04R","ILS(CAT Ⅰ)","550M","800M","200","N",
+"WUH","22L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"WUH","22R","ILS(CAT Ⅰ)","550M","800M","200","N",
+"XIY","23R","ILS(CAT Ⅰ)","550M","800M","200","N",
+"XIY","05R","ILS(CAT Ⅰ)","550M","800M","200","N",
+"XIY","05R","ILS(CAT Ⅱ)","300M",,"100","N",
+"XIY","05R","VOR DME",,"1800M","463","N",
+"XIY","05L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"XIY","23L","ILS(CAT Ⅰ)","550M","800M","200","N",
+"XIY","ALL","TAKE OFF","200M",,,"N",
+"XIY","23R","ILS(CAT Ⅱ)","300M",,"100","N","SPECIAL AUTH (HUD REQ)"
+"XIY","23L","VOR DME",,"2400M","562","N",
+"XUZ","09","VOR DME",,"2000M","345","N",
+"XUZ","27","RNAV","550M","800M","200","N",
+"XUZ","09","RNAV","550M","800M","200","N",
+"XUZ","27","ILS(CAT Ⅰ)","550M","800M","200","N",
+"XUZ","09","ILS(CAT Ⅰ)","550M","800M","200","N",
+"XUZ","27","VOR DME",,"2200M","415","N",
+"YIH","RWY14","ILS(CAT Ⅰ)","550M","800M","200FT","N",
+"YIH","RWY32","ILS(CAT Ⅰ)","550M","800M","200FT","N",
+"YIH","RWY14","VOR DME","1100","1100","332FT","N",
+"YIH","RWY32","VOR DME","1200","1200","358FT","N",
+"YNJ","09","VOR DME",,"3500M","761","N",
+"YNJ","09","TAKE OFF","400M",,,"N",
+"YNJ","27","VOR DME",,"3600M","723","N",
+"YNJ","27","ILS(CAT Ⅰ)",,"800M","230","N",
+"YNJ","09","ILS(CAT Ⅰ)",,"800M","214","N",
+"YNJ","27","TAKE OFF",,"800M",,"N",
+"YNT","ALL","TAKE OFF","400M","800M",,"N",
+"YNT","23","ILS(CAT Ⅰ)","550M","800M","200","N",
+"YNT","05","VOR DME",,"2400M","506","N",
+"YNT","05","ILS(CAT Ⅰ)","550M","800M","200","N",
+"YNT","23","VOR DME",,"1800M","416","N",
+"YNY","33","RNAV",,"1200M","413FT","N",
+"YNY","33","VOR",,"2100M","613FT","N",
+"YNY","33","ILS(CAT Ⅰ)","550M","800M","200FT","N",
+"YNY","15","ILS(CAT Ⅰ)",,"4300M","919FT","N","CIRCLING APP"

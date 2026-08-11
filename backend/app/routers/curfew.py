@@ -12,7 +12,9 @@ import io
 from pathlib import Path
 from typing import Dict
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+
+from ..admin_auth import check_password
 
 router = APIRouter()
 
@@ -95,8 +97,9 @@ def get_curfews():
 
 
 @router.post("/upload")
-async def upload_curfew(file: UploadFile = File(...)):
+async def upload_curfew(file: UploadFile = File(...), password: str = Form(...)):
     global _curfews
+    check_password(password)
     content = await file.read()
     fname = (file.filename or '').lower()
 

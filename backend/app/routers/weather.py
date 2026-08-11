@@ -24,6 +24,7 @@ from sqlalchemy import func, select, text
 
 from app.db import AsyncSessionLocal, make_upsert
 from app.models import MetarArchive
+from app.wx_minima import get_seed as get_minima_seed
 
 router = APIRouter()
 
@@ -824,3 +825,10 @@ async def history_monthly(
 
     months = _monthly_stats(rows)
     return {"icao": icao, "months": months}
+
+
+@router.get("/minima-seed")
+async def minima_seed():
+    """WX MINIMA CSV(접근방식별 RVR/VIS/DH)에서 산출한 공항별 기상 임계값 기본값 —
+    사용자가 개별로 임계값을 설정하지 않은 공항에 폴백으로 쓰임(app/wx_minima.py)."""
+    return get_minima_seed()

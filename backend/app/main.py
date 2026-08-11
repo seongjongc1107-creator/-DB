@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from .db import init_db
 from .fpl_db import init_fpl_db
 from .data_loader import store
+from .wx_minima import load_wx_minima_file
 from .routers import routes, navdata, search, typhoon, weather, volcanic_ash
 from .routers.curfew import load_curfew_file
 
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
     with ThreadPoolExecutor(max_workers=1) as pool:
         await loop.run_in_executor(pool, store.load)
     load_curfew_file()
+    load_wx_minima_file()
     await init_db()
     await init_fpl_db()
     yield
@@ -52,6 +54,9 @@ app.include_router(traffic_module.router, prefix="/api/traffic", tags=["traffic"
 
 from .routers import fois as fois_module
 app.include_router(fois_module.router, prefix="/api/fois", tags=["fois"])
+
+from .routers import admin as admin_module
+app.include_router(admin_module.router, prefix="/api/admin", tags=["admin"])
 
 
 @app.get("/api/health")

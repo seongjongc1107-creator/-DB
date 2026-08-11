@@ -1,5 +1,4 @@
-import { useRef, useState } from 'react'
-import { X, Upload, Trash2, Moon } from 'lucide-react'
+import { X, Trash2, Moon } from 'lucide-react'
 import { useApp } from '../AppContext'
 import { api } from '../api/client'
 
@@ -20,29 +19,10 @@ function tzLabel(tz: string) {
 
 export default function CurfewPanel() {
   const { state, dispatch } = useApp()
-  const fileRef = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   if (!state.curfewPanelOpen) return null
 
   const curfews = Object.values(state.curfews).sort((a, b) => a.icao.localeCompare(b.icao))
-
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true)
-    setError(null)
-    try {
-      const res = await api.curfew.upload(file)
-      dispatch({ type: 'SET_CURFEWS', payload: res.curfews })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '업로드 실패')
-    } finally {
-      setUploading(false)
-      if (fileRef.current) fileRef.current.value = ''
-    }
-  }
 
   async function handleClear() {
     if (!confirm('커퓨 데이터를 모두 삭제할까요?')) return
@@ -60,7 +40,7 @@ export default function CurfewPanel() {
           <div className="flex-1">
             <p className="text-sm font-bold text-white">커퓨 공항 관리</p>
             <p className="text-[11px] text-gray-500 mt-0.5">
-              CSV 또는 Excel 파일 업로드 — 컬럼: <span className="font-mono text-gray-400">icao, start, end, timezone, note</span>
+              업로드는 우측 상단 톱니바퀴 → 관리자 페이지에서 진행합니다
             </p>
           </div>
           <button onClick={() => dispatch({ type: 'TOGGLE_CURFEW_PANEL' })}
@@ -69,29 +49,12 @@ export default function CurfewPanel() {
           </button>
         </div>
 
-        {/* Upload bar */}
-        <div className="px-5 py-3 border-b border-gray-800 shrink-0 flex items-center gap-2">
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-colors"
-          >
-            <Upload size={12} />
-            {uploading ? '업로드 중...' : '파일 업로드'}
-          </button>
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleFile} />
-          <span className="text-[10px] text-gray-500">.csv / .xlsx 지원</span>
-          {curfews.length > 0 && (
+        {curfews.length > 0 && (
+          <div className="px-5 py-3 border-b border-gray-800 shrink-0 flex items-center">
             <button onClick={handleClear}
               className="ml-auto flex items-center gap-1 text-[11px] text-gray-600 hover:text-red-400 transition-colors">
               <Trash2 size={11} /> 전체 삭제
             </button>
-          )}
-        </div>
-
-        {error && (
-          <div className="mx-5 mt-3 px-3 py-2 rounded-lg bg-red-900/40 border border-red-700 text-xs text-red-300 shrink-0">
-            {error}
           </div>
         )}
 

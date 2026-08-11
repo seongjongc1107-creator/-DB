@@ -241,6 +241,31 @@ class NavDataStore:
         print(f"  routes={len(self.routes)}  fix_lookup={len(self.fix_lookup)}")
         self.loaded = True
 
+    def reload(self) -> None:
+        """서버 재시작 없이 NAVDATA/항로 CSV를 다시 읽어들임(관리자 업로드용).
+        새 데이터를 별도 인스턴스에서 완전히 파싱한 뒤 속성을 한 번에 옮겨
+        붙여서, 파싱 도중 들어오는 다른 요청이 절반만 갱신된 상태(예: airports는
+        새 데이터인데 routes는 아직 옛 데이터)를 보는 일이 없게 함 — 여러 명이
+        같은 서버를 동시에 보는 배포 구조라 이 순간의 일관성이 중요함."""
+        staging = NavDataStore()
+        staging.load()
+        self.airports = staging.airports
+        self.waypoints = staging.waypoints
+        self.ndbs = staging.ndbs
+        self.airways = staging.airways
+        self.runways = staging.runways
+        self.ils_by_airport = staging.ils_by_airport
+        self.approaches_by_airport = staging.approaches_by_airport
+        self.routes = staging.routes
+        self.fix_lookup = staging.fix_lookup
+        self.airway_names = staging.airway_names
+        self.airway_segments = staging.airway_segments
+        self.procedure_lookup = staging.procedure_lookup
+        self.route_by_origin = staging.route_by_origin
+        self.route_by_dest = staging.route_by_dest
+        self.route_by_token = staging.route_by_token
+        self.loaded = True
+
     # ------------------------------------------------------------------
     # NAVDATA parsing
     # ------------------------------------------------------------------
