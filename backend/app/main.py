@@ -12,6 +12,7 @@ from .db import init_db
 from .fpl_db import init_fpl_db
 from .data_loader import store
 from .wx_minima import load_wx_minima_file
+from .scheduler import start_scheduler
 from .routers import routes, navdata, search, typhoon, weather, volcanic_ash
 from .routers.curfew import load_curfew_file
 
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI):
     load_wx_minima_file()
     await init_db()
     await init_fpl_db()
+    start_scheduler()
     yield
 
 

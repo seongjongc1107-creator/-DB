@@ -1,4 +1,4 @@
-import type { AdminDataStatus, AdminMinimaUploadResult, AdminUploadResult, AircraftState, AirportDetail, CollectStatus, CurfewInfo, FoisFlight, FplCollectStatus, FplHistoryStats, FoisRoute, GeoJSONFeatureCollection, MetarData, RouteMeta, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherThresholds, WeatherTrendData } from '../types'
+import type { AdminDataStatus, AdminMinimaUploadResult, AdminUploadResult, AircraftState, AirportDetail, CollectStatus, CountryInfo, CurfewInfo, DiversionInferResult, FoisFlight, FplCollectStatus, FplHistoryStats, FplWaypointSearchResult, FoisRoute, GeoJSONFeatureCollection, MetarData, RouteMeta, ScenarioQueryStatus, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherThresholds, WeatherTrendData } from '../types'
 
 const BASE = '/api'
 
@@ -74,6 +74,21 @@ export const api = {
       get<FplCollectStatus>(`/fois/history/status/${encodeURIComponent(taskId)}`),
     historyStats: (params: { dep?: string; arr?: string; airline?: string; start: string; end: string }) =>
       get<FplHistoryStats>('/fois/history/stats', params as Record<string, string>),
+    waypointSearch: (params: { waypoint: string; airline?: string; start?: string; end?: string }) =>
+      get<FplWaypointSearchResult>('/fois/history/waypoint-search', params as Record<string, string>),
+    countryList: () => get<{ countries: CountryInfo[] }>('/fois/country/list'),
+    scenarioQuery: (params: {
+      country?: string; airport?: string; direction: 'dep' | 'arr'
+      start: string; end: string; constrained: string; diversion?: string
+    }) => {
+      const url = new URL(BASE + '/fois/scenario/query', window.location.origin)
+      Object.entries(params).forEach(([k, v]) => v && url.searchParams.set(k, v))
+      return fetch(url.toString(), { method: 'POST' }).then(r => r.json() as Promise<{ task_id: string; airport_count: number; error?: string }>)
+    },
+    scenarioStatus: (taskId: string) =>
+      get<ScenarioQueryStatus>(`/fois/scenario/status/${encodeURIComponent(taskId)}`),
+    inferDiversion: (params: { waypoint: string; dep?: string; arr?: string }) =>
+      get<DiversionInferResult>('/fois/history/infer-diversion', params as Record<string, string>),
   },
   admin: {
     status: () => get<AdminDataStatus>('/admin/data/status'),

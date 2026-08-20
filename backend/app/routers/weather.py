@@ -413,14 +413,24 @@ async def _fetch_asos(client: httpx.AsyncClient, icao: str, start: date, end: da
     return []
 
 
+_METAR_COLS = 12  # MetarArchive 컬럼 수 — 청크 크기 계산용
+_SQLITE_MAX_VARS = 900  # SQLite 바인드 파라미터 상한(구버전 999)보다 여유 있게 낮춰서 안전하게
+
 async def _bulk_insert(records: list[dict]) -> int:
+    """한 번에 다 INSERT하면(예: ZMCK처럼 오래 안 모은 공항을 몇 년치 몰아서
+    수집할 때) 레코드 수 × 컬럼 수가 SQLite 바인드 파라미터 상한을 넘어서
+    "too many SQL variables"로 통째로 실패함 — 청크로 쪼개서 나눠 넣음."""
     if not records:
         return 0
+    chunk_size = max(1, _SQLITE_MAX_VARS // _METAR_COLS)
+    total = 0
     async with AsyncSessionLocal() as session:
-        stmt = make_upsert(MetarArchive, records)
-        result = await session.execute(stmt)
+        for i in range(0, len(records), chunk_size):
+            stmt = make_upsert(MetarArchive, records[i:i + chunk_size])
+            result = await session.execute(stmt)
+            total += result.rowcount or 0
         await session.commit()
-        return result.rowcount or 0
+    return total
 
 
 # 한 달치를 이미 촘촘하게 갖고 있으면(하루 평균 18건 이상 — ASOS는 보통 시간당

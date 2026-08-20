@@ -51,15 +51,21 @@ export default function RoutePanel() {
     // 도착지까지 같이 골랐을 때 "그 항공로를 지나는 RKSI→VVPQ 항로"처럼 세 조건을
     // 한 번에 교집합으로 좁혀줌 — 백엔드가 origin/destination/fix를 동시에 지원함
     const fix = activeFixKey || undefined
+    // 출발지 고르고 바로 이어서 도착지 고르면(또는 StrictMode 이중 렌더링 때문에)
+    // 이전 요청이 늦게 도착해서 최신 선택 결과를 덮어쓰는 경쟁 상태가 있었음 —
+    // cancelled 플래그로 오래된 응답은 무시함
+    let cancelled = false
     dispatch({ type: 'SET_LOADING', payload: true })
     Promise.all([
       api.routes.list({ origin: state.origin || undefined, destination: state.destination || undefined, fix }),
       api.routes.geometry({ origin: state.origin || undefined, destination: state.destination || undefined, fix }),
     ]).then(([listData, geoData]) => {
+      if (cancelled) return
       dispatch({ type: 'SET_ALL_ROUTES', payload: listData.routes })
       dispatch({ type: 'SET_ROUTE_GEOJSON', payload: geoData })
       dispatch({ type: 'SET_SELECTED_ROUTES', payload: [] })
-    }).catch(() => {}).finally(() => dispatch({ type: 'SET_LOADING', payload: false }))
+    }).catch(() => {}).finally(() => { if (!cancelled) dispatch({ type: 'SET_LOADING', payload: false }) })
+    return () => { cancelled = true }
   }, [state.origin, state.destination, activeFixKey, dispatch])
 
   // 공간 필터 해제 시 대체 항로 모드도 해제
@@ -69,7 +75,7 @@ export default function RoutePanel() {
     }
   }, [state.spatialFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function reset() {
+  async function reset() {
     exitAltMode()
     dispatch({ type: 'SET_ORIGIN', payload: '' })
     dispatch({ type: 'SET_DESTINATION', payload: '' })
@@ -86,6 +92,15 @@ export default function RoutePanel() {
     setNumberFilter('')
     // 지도도 초기 화면(첫 로드 시 보이던 시점/줌)으로 복귀
     dispatch({ type: 'SET_FLY_TO', payload: { lon: 127, lat: 35, zoom: 4 } })
+
+    // airway/waypoint 검색으로 allRoutes가 좁혀진 채였다면 위 초기화만으로는
+    // 안 풀림(origin/destination이 둘 다 비어있으면 아래 검색 useEffect가
+    // 아예 안 도니까) — 앱 첫 로드 때와 똑같이 전체 항로를 다시 받아와야 함
+    try {
+      const [listData, geoData] = await Promise.all([api.routes.list(), api.routes.geometry()])
+      dispatch({ type: 'SET_ALL_ROUTES', payload: listData.routes })
+      dispatch({ type: 'SET_ROUTE_GEOJSON', payload: geoData })
+    } catch {}
   }
 
   function exitAltMode() {
@@ -291,7 +306,11 @@ export default function RoutePanel() {
       <div className="flex-1 overflow-y-auto space-y-1 pr-0.5">
         {state.isLoading ? (
           <div className="text-xs text-gray-500 text-center py-4">로딩 중…</div>
-        ) : routes.length === 0 ? (
+        ) : sortedRoutes.length === 0 ? (
+          // 아직 출발/도착지도 안 고르고 검색도 안 한 진짜 초기 상태 — 이건
+          // 번호 필터랑 무관하게 보여줘야 함(sortedRoutes 기준, routes 기준
+          // 아님 — routes 기준으로 하면 번호 필터가 0건 매칭될 때마다 필터
+          // 입력창까지 같이 사라져서 뭘 잘못 눌렀는지도 안 보이던 버그가 있었음)
           <div className="text-xs text-gray-600 text-center py-6">
             출발지/도착지를 선택하거나<br />항로명을 검색하세요
           </div>
@@ -360,57 +379,63 @@ export default function RoutePanel() {
                     : `${state.selectedRouteIds.length}개 선택됨 — Ctrl+클릭으로 추가/제거`}
               </div>
             )}
-            {routes.map(r => {
-              const selIdx = state.selectedRouteIds.indexOf(r.id)
-              const isSelected = selIdx !== -1
-              const isAffected = affectedIdSet.has(r.id)
-              const color = selIdx !== -1 ? SELECT_COLORS[selIdx % SELECT_COLORS.length] : undefined
-              return (
-                <button
-                  key={r.id}
-                  className={`w-full text-left px-2.5 py-2 rounded-md text-xs transition-colors border ${
-                    isSelected
-                      ? 'text-white'
-                      : isAffected
-                        ? 'bg-orange-950/30 hover:bg-orange-950/50 border-orange-800/60 text-gray-300 hover:text-white'
-                        : 'bg-gray-800 hover:bg-gray-750 border-transparent text-gray-300 hover:text-white'
-                  }`}
-                  style={isSelected ? { backgroundColor: color + '26', borderColor: color } : undefined}
-                  onClick={e => selectRoute(r.id, e.ctrlKey || e.metaKey)}
-                  onMouseEnter={e => {
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                    setRouteTooltip({ x: rect.right + 8, y: rect.top, text: r.route })
-                    dispatch({ type: 'SET_HOVERED_ROUTE', payload: r.id })
-                  }}
-                  onMouseLeave={() => {
-                    setRouteTooltip(null)
-                    dispatch({ type: 'SET_HOVERED_ROUTE', payload: null })
-                  }}
-                >
-                  <div className="flex items-center gap-1.5">
-                    {isSelected && (
-                      <span
-                        className="flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold text-gray-950 shrink-0"
-                        style={{ backgroundColor: color }}
-                      >
-                        {selIdx + 1}
-                      </span>
-                    )}
-                    <div className="font-semibold text-white">
-                      {r.origin} → {r.destination}
-                      <span className="ml-1 text-gray-500 font-normal">#{r.number}</span>
+            {routes.length === 0 ? (
+              <div className="text-xs text-gray-600 text-center py-6">
+                번호 필터에 맞는 항로가 없습니다
+              </div>
+            ) : (
+              routes.map(r => {
+                const selIdx = state.selectedRouteIds.indexOf(r.id)
+                const isSelected = selIdx !== -1
+                const isAffected = affectedIdSet.has(r.id)
+                const color = selIdx !== -1 ? SELECT_COLORS[selIdx % SELECT_COLORS.length] : undefined
+                return (
+                  <button
+                    key={r.id}
+                    className={`w-full text-left px-2.5 py-2 rounded-md text-xs transition-colors border ${
+                      isSelected
+                        ? 'text-white'
+                        : isAffected
+                          ? 'bg-orange-950/30 hover:bg-orange-950/50 border-orange-800/60 text-gray-300 hover:text-white'
+                          : 'bg-gray-800 hover:bg-gray-750 border-transparent text-gray-300 hover:text-white'
+                    }`}
+                    style={isSelected ? { backgroundColor: color + '26', borderColor: color } : undefined}
+                    onClick={e => selectRoute(r.id, e.ctrlKey || e.metaKey)}
+                    onMouseEnter={e => {
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                      setRouteTooltip({ x: rect.right + 8, y: rect.top, text: r.route })
+                      dispatch({ type: 'SET_HOVERED_ROUTE', payload: r.id })
+                    }}
+                    onMouseLeave={() => {
+                      setRouteTooltip(null)
+                      dispatch({ type: 'SET_HOVERED_ROUTE', payload: null })
+                    }}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {isSelected && (
+                        <span
+                          className="flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold text-gray-950 shrink-0"
+                          style={{ backgroundColor: color }}
+                        >
+                          {selIdx + 1}
+                        </span>
+                      )}
+                      <div className="font-semibold text-white">
+                        {r.origin} → {r.destination}
+                        <span className="ml-1 text-gray-500 font-normal">#{r.number}</span>
+                      </div>
+                      {isAffected && (
+                        <span className="flex items-center gap-0.5 text-[9px] font-semibold text-orange-400 shrink-0">
+                          <AlertTriangle size={9} /> 영향
+                        </span>
+                      )}
                     </div>
-                    {isAffected && (
-                      <span className="flex items-center gap-0.5 text-[9px] font-semibold text-orange-400 shrink-0">
-                        <AlertTriangle size={9} /> 영향
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-gray-400 truncate mt-0.5">{r.route}</div>
-                  <div className="text-gray-500 mt-0.5">{r.distance} NM</div>
-                </button>
-              )
-            })}
+                    <div className="text-gray-400 truncate mt-0.5">{r.route}</div>
+                    <div className="text-gray-500 mt-0.5">{r.distance} NM</div>
+                  </button>
+                )
+              })
+            )}
           </>
         )}
       </div>

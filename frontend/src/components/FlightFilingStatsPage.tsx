@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { X, Search, RefreshCw, Plane, Clock, MapPin } from 'lucide-react'
+import { X, Search, RefreshCw, Plane, Clock, MapPin, Filter } from 'lucide-react'
 import { api } from '../api/client'
 import { useApp } from '../AppContext'
 import { SELECT_COLORS } from '../lib/selectionColors'
 import { airlineColor } from '../lib/airlineColors'
-import type { FplAirlineCount, FplCollectStatus, FplOdStats, FplRouteStat } from '../types'
+import DiversionScenarioPanel from './DiversionScenarioPanel'
+import type { FplAirlineCount, FplCollectStatus, FplOdStats, FplRouteStat, FplWaypointSearchResult } from '../types'
 
 interface Props {
   onClose: () => void
@@ -188,7 +189,7 @@ function OdCard({ g }: { g: FplOdStats }) {
               <button
                 key={k}
                 onClick={() => setSortBy(k)}
-                className={`text-[10px] px-1.5 py-0.5 rounded ${sortBy === k ? 'bg-cyan-900/60 text-cyan-300' : 'text-gray-600 hover:text-gray-400'}`}
+                className={`text-[10px] px-1.5 py-1 rounded ${sortBy === k ? 'bg-cyan-900/60 text-cyan-300' : 'bg-gray-800 text-gray-500 hover:text-gray-400'}`}
               >
                 {SORT_LABELS[k]}
               </button>
@@ -206,6 +207,15 @@ function OdCard({ g }: { g: FplOdStats }) {
                   <span className="text-gray-400 shrink-0">{r.count}건 제출 ({Math.round(r.pct * 100)}%)</span>
                   <span className="text-gray-500 shrink-0">평균 {formatMin(r.eet_avg_min)}</span>
                   <span className="text-gray-600 text-[10px] shrink-0">최근 {r.last_flown}</span>
+                  {r.navblue_number != null ? (
+                    <span className="text-[9px] text-green-400 bg-green-900/30 border border-green-700 px-1 rounded shrink-0">
+                      ✓ NAVBLUE #{r.navblue_number}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-gray-500 bg-gray-800 border border-gray-700 px-1 rounded shrink-0">
+                      NAVBLUE 미등록
+                    </span>
+                  )}
                   <RouteOverlayButton g={g} r={r} colorIdx={i} />
                 </div>
                 <div className="text-[10px] text-gray-400 font-mono break-all mt-0.5">
@@ -232,12 +242,105 @@ function OdCard({ g }: { g: FplOdStats }) {
   )
 }
 
+// ─── 웨이포인트 통과 이력 검색 — dep/arr 필터랑 무관하게 로컬에 수집된 fpl_archive
+// 전체를 대상으로 함. 항로 문자열엔 항공로 연결점만 적혀있고 중간 fix는 생략되는
+// 경우가 많아서, 문자열 검색이 아니라 백엔드가 항로를 좌표까지 풀어서 실제로
+// 지나는지 확인함(waypoint-search 엔드포인트) ─────────────────────────────────
+
+function WaypointSearch() {
+  const [open, setOpen] = useState(false)
+  const [waypoint, setWaypoint] = useState('')
+  const [result, setResult] = useState<FplWaypointSearchResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSearch() {
+    const wp = waypoint.trim().toUpperCase()
+    if (!wp) return
+    setLoading(true); setError(null)
+    try {
+      // 우리 회사(제주항공) 실적만 보려는 용도라 항상 JJA로 좁혀서 검색
+      const res = await api.fois.waypointSearch({ waypoint: wp, airline: 'JJA' })
+      if (res.error) throw new Error(res.error)
+      setResult(res)
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e))
+      setResult(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="bg-gray-900/60 border border-gray-700 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-2.5 py-2 text-[11px] font-semibold text-gray-300 hover:text-white transition-colors"
+      >
+        <span className="flex items-center gap-1.5"><MapPin size={12} className="text-gray-500" /> 웨이포인트 통과 이력 검색 <span className="text-[9px] text-gray-600">(제주항공 JJA만)</span></span>
+        <span className="text-gray-600">{open ? '접기' : '펼치기'}</span>
+      </button>
+      {open && (
+        <div className="px-2.5 pb-2.5 space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              value={waypoint} onChange={e => setWaypoint(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSearch() }}
+              placeholder="예: PONIK 또는 PONIK, KARBU(전부 지나야 매칭)"
+              className="flex-1 bg-gray-950 border border-gray-700 rounded px-2 py-1 text-xs text-white uppercase"
+            />
+            <button
+              onClick={handleSearch}
+              disabled={loading}
+              className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded transition-colors shrink-0"
+            >
+              {loading ? <RefreshCw size={11} className="animate-spin" /> : <Search size={11} />}
+              검색
+            </button>
+          </div>
+
+          {error && <div className="text-[10px] text-red-400">{error}</div>}
+
+          {result && (
+            <div className="space-y-1.5">
+              <div className="text-[10px] text-gray-500 leading-relaxed">
+                수집된 {result.coverage.total_archived.toLocaleString()}편
+                {result.coverage.date_range && ` (${result.coverage.date_range.start} ~ ${result.coverage.date_range.end})`} 중{' '}
+                <b className="text-cyan-300">{result.count}편</b>에서{' '}
+                {result.waypoints.length > 1 ? `${result.waypoints.join(' + ')} 전부` : result.waypoints[0]} 통과 확인.
+                결과 0건은 "안 지나감"이 아니라 "아직 그 구간 미수집"일 수 있음
+              </div>
+              {result.flights.length > 0 && (
+                <div className="max-h-64 overflow-y-auto space-y-1">
+                  {result.flights.map(f => (
+                    <div key={f.ams_rec_pk} className="text-[11px] bg-gray-950/60 border border-gray-800 rounded px-2 py-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-gray-500 shrink-0">{f.flight_date}</span>
+                        <span className="font-mono text-gray-300 shrink-0">{f.callsign}</span>
+                        <span className="text-gray-400 shrink-0">{f.dep} → {f.arr}</span>
+                        <span className="text-gray-600 shrink-0">{f.ac_type}</span>
+                        <span className="text-gray-600 ml-auto shrink-0">{formatMin(f.eet_min)}</span>
+                      </div>
+                      <div className="text-[10px] text-gray-500 font-mono break-all mt-0.5">{f.route}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function FlightFilingStatsPage({ onClose }: Props) {
   const { state, dispatch } = useApp()
   const overlayCount = Object.keys(state.filedRouteOverlays).length
   const today = new Date().toISOString().slice(0, 10)
   const monthAgo = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10)
 
+  const [formOpen, setFormOpen] = useState(false)
   const [dep, setDep] = useState('RKSI')
   const [arr, setArr] = useState('')
   const [airline, setAirline] = useState('')
@@ -327,64 +430,79 @@ export default function FlightFilingStatsPage({ onClose }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        <div className="flex items-end gap-2 flex-wrap bg-gray-900/60 border border-gray-700 rounded-lg p-2.5">
-          <label className="text-[11px] text-gray-400">
-            출발
-            <input
-              value={dep} onChange={e => setDep(e.target.value)}
-              placeholder="RKSI"
-              className="block mt-1 w-16 bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-white uppercase"
-            />
-          </label>
-          <label className="text-[11px] text-gray-400">
-            도착
-            <input
-              value={arr} onChange={e => setArr(e.target.value)}
-              placeholder="전체"
-              className="block mt-1 w-16 bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-white uppercase"
-            />
-          </label>
-          <label className="text-[11px] text-gray-400">
-            시작일
-            <input
-              type="date" value={start} onChange={e => setStart(e.target.value)}
-              className="block mt-1 bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-[11px] text-white w-[118px]"
-            />
-          </label>
-          <label className="text-[11px] text-gray-400">
-            종료일
-            <input
-              type="date" value={end} onChange={e => setEnd(e.target.value)}
-              className="block mt-1 bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-[11px] text-white w-[118px]"
-            />
-          </label>
+        <div className="bg-gray-900/60 border border-gray-700 rounded-lg overflow-hidden">
           <button
-            onClick={handleCollectAndQuery}
-            disabled={loading}
-            className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-semibold px-2.5 py-1.5 rounded transition-colors"
+            onClick={() => setFormOpen(v => !v)}
+            className="w-full flex items-center justify-between px-2.5 py-2 text-[11px] font-semibold text-gray-300 hover:text-white transition-colors"
           >
-            {loading ? <RefreshCw size={12} className="animate-spin" /> : <Search size={12} />}
-            수집 & 조회
+            <span className="flex items-center gap-1.5"><Filter size={12} className="text-gray-500" /> 구간별 제출 통계 조회</span>
+            <span className="text-gray-600">{formOpen ? '접기' : '펼치기'}</span>
           </button>
-
-          {airlines.length > 0 && (
-            <label className="text-[11px] text-gray-400 w-full">
-              항공사
-              <select
-                value={airline}
-                onChange={e => handleAirlineChange(e.target.value)}
-                className="block mt-1 w-full bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-white"
+          {formOpen && (
+            <div className="px-2.5 pb-2.5 flex items-end gap-2 flex-wrap">
+              <label className="text-[11px] text-gray-400">
+                출발
+                <input
+                  value={dep} onChange={e => setDep(e.target.value)}
+                  placeholder="RKSI"
+                  className="block mt-1 w-16 bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-white uppercase"
+                />
+              </label>
+              <label className="text-[11px] text-gray-400">
+                도착
+                <input
+                  value={arr} onChange={e => setArr(e.target.value)}
+                  placeholder="전체"
+                  className="block mt-1 w-16 bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-white uppercase"
+                />
+              </label>
+              <label className="text-[11px] text-gray-400">
+                시작일
+                <input
+                  type="date" value={start} onChange={e => setStart(e.target.value)}
+                  className="block mt-1 bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-[11px] text-white w-[118px]"
+                />
+              </label>
+              <label className="text-[11px] text-gray-400">
+                종료일
+                <input
+                  type="date" value={end} onChange={e => setEnd(e.target.value)}
+                  className="block mt-1 bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-[11px] text-white w-[118px]"
+                />
+              </label>
+              <button
+                onClick={handleCollectAndQuery}
+                disabled={loading}
+                className="flex items-center gap-1.5 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded transition-colors"
               >
-                <option value="">전체 ({airlines.reduce((s, a) => s + a.count, 0)}편)</option>
-                {airlines.map(a => (
-                  <option key={a.code} value={a.code} style={{ color: airlineColor(a.code) }}>
-                    {a.code} ({a.count}편)
-                  </option>
-                ))}
-              </select>
-            </label>
+                {loading ? <RefreshCw size={11} className="animate-spin" /> : <Search size={11} />}
+                수집 & 조회
+              </button>
+
+              {airlines.length > 0 && (
+                <label className="text-[11px] text-gray-400 w-full">
+                  항공사
+                  <select
+                    value={airline}
+                    onChange={e => handleAirlineChange(e.target.value)}
+                    className="block mt-1 w-full bg-gray-950 border border-gray-700 rounded px-1.5 py-1 text-xs text-white"
+                  >
+                    <option value="">전체 ({airlines.reduce((s, a) => s + a.count, 0)}편)</option>
+                    {airlines.map(a => (
+                      <option key={a.code} value={a.code} style={{ color: airlineColor(a.code) }}>
+                        {a.code} ({a.count}편)
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
           )}
         </div>
+
+        <WaypointSearch />
+
+        <DiversionScenarioPanel />
 
         {error && <div className="text-xs text-red-400">{error}</div>}
 

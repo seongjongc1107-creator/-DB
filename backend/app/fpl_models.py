@@ -23,3 +23,19 @@ class FplArchive(FplBase):
     eet_min = Column(Integer, nullable=True)  # FPL 신고 총 예상비행시간(분)
     route = Column(String, nullable=True)     # 고도/속도 변경값을 뗀 항로 부분만
     collected_at = Column(DateTime, nullable=False)
+
+
+class FplCollectionRun(FplBase):
+    """수집 시도 기록 — 결과가 0편이어도 남김. fpl_archive는 편이 있어야만 행이
+    생겨서, '아직 한 번도 안 돌려봄'과 '돌렸는데 실제로 0편이었음'을 구분할
+    방법이 없었음. 이 로그가 있으면 admin의 거점공항 커버리지 체크가 후자도
+    "완료"로 인정할 수 있음(단, 도중 에러 없이 끝까지 돈 경우만 기록됨)."""
+    __tablename__ = "fpl_collection_run"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    dep = Column(String(4), nullable=True)
+    arr = Column(String(4), nullable=True)
+    start_date = Column(String(10), nullable=False)
+    end_date = Column(String(10), nullable=False)
+    flights_found = Column(Integer, nullable=False)
+    ran_at = Column(DateTime, nullable=False)

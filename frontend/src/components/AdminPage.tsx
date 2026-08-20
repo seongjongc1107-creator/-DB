@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { X, ShieldCheck, Upload, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Database, Cloud, Wind, Mountain, Moon } from 'lucide-react'
+import { X, ShieldCheck, Upload, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Database, Cloud, Wind, Mountain, Moon, Route } from 'lucide-react'
 import { api } from '../api/client'
-import type { AdminDataStatus, AdminMinimaUploadResult, AdminUploadResult, MetarData } from '../types'
+import type { AdminDataStatus, AdminMinimaUploadResult, AdminUploadResult, BaseAirportCoverage, FplArchiveStatus, MetarData, SchedulerStatus } from '../types'
 
 interface Props {
   onClose: () => void
@@ -122,6 +122,116 @@ function ExternalSourcesStatus() {
         <SourceCard icon={<Wind size={14} />} label="태풍 (GDACS)" {...typhoon} />
         <SourceCard icon={<Mountain size={14} />} label="화산재 (BOM VAAC 집계)" {...ash} />
       </div>
+    </div>
+  )
+}
+
+// ─── 항로 실적 아카이브(fpl_archive) 현황 — 읽기 전용, 비밀번호 불필요 ──────────
+
+function minutesAgoLabel(iso: string | null): string {
+  if (!iso) return '—'
+  const min = Math.round((Date.now() - Date.parse(iso)) / 60000)
+  if (min < 60) return `${min}분 전`
+  if (min < 1440) return `${Math.round(min / 60)}시간 전`
+  return `${Math.round(min / 1440)}일 전`
+}
+
+function FplArchiveSection({
+  status, scheduler, coverage, onRefresh, refreshing, checkedAt,
+}: {
+  status: FplArchiveStatus | null
+  scheduler: SchedulerStatus | null
+  coverage: BaseAirportCoverage[]
+  onRefresh: () => void
+  refreshing: boolean
+  checkedAt: Date | null
+}) {
+  if (!status) return null
+  const coveredCount = coverage.filter(c => c.covered).length
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <Route size={13} className="text-gray-500" />
+          <h3 className="text-xs font-bold text-gray-300">항로 실적 아카이브 (FOIS 수집 현황)</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          {checkedAt && <span className="text-[10px] text-gray-600">{checkedAt.toLocaleTimeString('ko-KR')} 확인</span>}
+          <button
+            onClick={onRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-1 text-[10px] text-cyan-400 hover:text-cyan-300 disabled:opacity-50"
+          >
+            <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} /> 새로고침
+          </button>
+        </div>
+      </div>
+      {status.total_flights === 0 ? (
+        <div className="text-[11px] text-gray-500">아직 수집된 게 없습니다 — 항로 실적 페이지에서 "수집 &amp; 조회"로 채울 수 있어요</div>
+      ) : (
+        <div className="space-y-2">
+          <div className="text-[11px] text-gray-400 flex flex-wrap gap-x-3 gap-y-1">
+            <span>총 <b className="text-gray-200">{status.total_flights.toLocaleString()}</b>편</span>
+            <span>구간 <b className="text-gray-200">{status.od_pair_count}</b>개</span>
+            {status.date_range && <span>기간 {status.date_range.start} ~ {status.date_range.end}</span>}
+            <span className="text-gray-500">마지막 수집 {minutesAgoLabel(status.last_collected_at)}</span>
+          </div>
+          {status.top_od_pairs.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {status.top_od_pairs.map(p => (
+                <span key={`${p.dep}-${p.arr}`} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
+                  {p.dep}→{p.arr} <span className="text-gray-500">{p.count.toLocaleString()}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {coverage.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">
+            거점 공항 최근 30일 수집 완료 — <span className="text-gray-300">{coveredCount}/{coverage.length}</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {coverage.map(c => (
+              <span
+                key={c.airport}
+                title={
+                  c.verified_empty
+                    ? '출/도착 양방향 다 확인함 — 지난 한 달 실제 취항 이력 없음(0편)'
+                    : c.date_range
+                      ? `${c.count.toLocaleString()}편 · ${c.date_range.start} ~ ${c.date_range.end}`
+                      : '수집된 데이터 없음'
+                }
+                className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${
+                  c.covered
+                    ? c.verified_empty
+                      ? 'bg-gray-800 border-green-800 text-green-500'
+                      : 'bg-green-900/30 border-green-700 text-green-300'
+                    : 'bg-gray-800 border-gray-700 text-gray-500'
+                }`}
+              >
+                {c.covered ? <CheckCircle2 size={10} /> : <XCircle size={10} className="text-gray-600" />}
+                {c.airport}
+                {c.verified_empty && <span className="text-gray-500">(0)</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {scheduler && (
+        <div className="mt-2 text-[10px] text-gray-500 flex items-center gap-1.5">
+          <RefreshCw size={10} className={scheduler.running ? 'animate-spin text-cyan-400' : 'text-gray-600'} />
+          자동 수집(매일 03:00 KST, 거점 16곳):{' '}
+          {scheduler.running
+            ? `진행 중 (${scheduler.jobs_done}/${scheduler.jobs_total})`
+            : scheduler.finished_at
+              ? `마지막 실행 ${scheduler.finished_at}${scheduler.last_error ? ` · 오류: ${scheduler.last_error}` : ' · 정상 완료'}`
+              : '아직 실행된 적 없음(다음 새벽 3시에 첫 실행)'}
+        </div>
+      )}
     </div>
   )
 }
@@ -276,12 +386,24 @@ export default function AdminPage({ onClose }: Props) {
   const [password, setPassword] = useState('')
   const [lastResult, setLastResult] = useState<AdminUploadResult | null>(null)
   const [lastMinimaResult, setLastMinimaResult] = useState<AdminMinimaUploadResult | null>(null)
+  const [fplRefreshing, setFplRefreshing] = useState(false)
+  const [fplCheckedAt, setFplCheckedAt] = useState<Date | null>(null)
 
   function loadStatus() {
-    api.admin.status().then(setStatus).catch(() => {})
+    return api.admin.status().then(setStatus).catch(() => {})
   }
 
-  useEffect(() => { loadStatus() }, [])
+  async function handleFplRefresh() {
+    setFplRefreshing(true)
+    try {
+      await loadStatus()
+    } finally {
+      setFplCheckedAt(new Date())
+      setFplRefreshing(false)
+    }
+  }
+
+  useEffect(() => { handleFplRefresh() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleDone(result: AdminUploadResult) {
     setLastResult(result)
@@ -313,6 +435,15 @@ export default function AdminPage({ onClose }: Props) {
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <ExternalSourcesStatus />
+
+          <FplArchiveSection
+            status={status?.fpl_archive ?? null}
+            scheduler={status?.scheduler ?? null}
+            coverage={status?.base_airport_coverage ?? []}
+            onRefresh={handleFplRefresh}
+            refreshing={fplRefreshing}
+            checkedAt={fplCheckedAt}
+          />
 
           <label className="block text-[11px] text-gray-400">
             관리자 비밀번호

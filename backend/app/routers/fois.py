@@ -1,7 +1,10 @@
 import asyncio
+import difflib
+import math
 import random
 import re
 import uuid
+from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from statistics import mean
 from typing import Optional
@@ -10,9 +13,11 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, Query
 from sqlalchemy import select
 
+from ..country_codes import airports_in_country, available_countries
 from ..data_loader import store, _gc_km
 from ..fpl_db import FplSessionLocal, make_fpl_upsert
-from ..fpl_models import FplArchive
+from ..fpl_models import FplArchive, FplCollectionRun
+from .navdata import _FIR_DATA
 
 router = APIRouter()
 
@@ -296,6 +301,18 @@ async def _run_fpl_collect(task_id: str, dep: str, arr: str, start: date, end: d
 
             _fpl_tasks[task_id]["processed_days"] += 1
 
+    # 중간에 에러 없이 끝까지 다 돈 경우에만 기록 — 하루라도 조회 실패한 채로
+    # 넘어갔으면(예: 일시적 DNS 장애) "0편 확인됨"으로 오인되면 안 됨
+    if _fpl_tasks[task_id].get("error") is None:
+        async with FplSessionLocal() as session:
+            session.add(FplCollectionRun(
+                dep=dep or None, arr=arr or None,
+                start_date=start.isoformat(), end_date=end.isoformat(),
+                flights_found=_fpl_tasks[task_id]["total_flights"],
+                ran_at=datetime.now(timezone.utc),
+            ))
+            await session.commit()
+
     _fpl_tasks[task_id]["status"] = "done"
 
 
@@ -361,6 +378,36 @@ def _canonicalize_route(route: str) -> str:
                 tokens = tokens[:i + 1] + tokens[i + 3:]
                 merged = True
                 break
+    return " ".join(tokens)
+
+
+_PROC_TOKEN_RE = re.compile(r"^[A-Z]{2,}\d")  # SID/STAR 절차명 패턴: 2글자 이상 문자 + 숫자(+선택적 리비전 문자)
+# 예: TETRA8, BOPTA2A, KARBU2E, GUKDO2H — 항공로명(A582, Y16, L512처럼 문자 1개+숫자)과
+# 구분됨. fix_lookup 멤버십은 못 믿음(TETRA8처럼 절차명인데 fix_lookup에도 우연히
+# 걸리는 경우가 있었음) — 그래서 airway_names 배제 + 이 패턴으로 판별함.
+
+
+def _navblue_match_key(route: str) -> str:
+    """NAVBLUE 항로DB와 대조할 때만 쓰는 키 — SID/STAR 절차명은 빼고 비교함.
+    항공사가 SID/STAR 자리에 그냥 DCT로 파일하거나, 절차 리비전이 실제 필드
+    시점과 NAVBLUE 스냅샷 사이에 달라지는 경우가 흔해서(예: GUKDO2H vs
+    GUKDO2E) 절차명까지 완전히 일치해야 매칭시키면 사실상 같은 코어 항로를
+    "미등록"으로 오판하는 경우가 많았음. 이 SID/STAR 자리에 한해서는 DCT도
+    "절차 없음"과 동급으로 취급해 같이 뗌(NAVBLUE는 이 자리에 DCT를 안 쓰고
+    항상 이름 붙은 절차를 쓰므로, 안 떼면 실제 필드가 DCT로 낸 것만으로
+    매칭이 깨짐) — 화면 표시용 canonical route(SID/STAR 유지)와는 별개로
+    이 매칭 용도로만 씀."""
+    tokens = _canonicalize_route(route).split()
+
+    def is_stub(t: str) -> bool:
+        if t in store.airway_names:
+            return False
+        return t == "DCT" or bool(_PROC_TOKEN_RE.match(t))
+
+    if len(tokens) >= 3 and is_stub(tokens[1]):
+        tokens.pop(1)
+    if len(tokens) >= 3 and is_stub(tokens[-2]):
+        tokens.pop(-2)
     return " ".join(tokens)
 
 
@@ -452,6 +499,12 @@ def _fpl_stats(rows: list[FplArchive]) -> list[dict]:
                 eets.append(r.eet_min)
         total = len(recs)
 
+        # 이 OD 쌍으로 NAVBLUE 항로DB에 등록된 항로들을 canonical 형태로 미리
+        # 매핑해둠 — 우회항로 추천 기능과 같은 방식으로, 실제 제출 항로가 우리
+        # 정식 DB에도 있는 항로인지 바로 대조 가능하게
+        navblue_matches = store.get_routes(origin=dep, destination=arr)
+        navblue_by_canon = {_navblue_match_key(rt.route_str): rt.number for rt in navblue_matches}
+
         routes_out = []
         for canon, rrecs in sorted(route_recs.items(), key=lambda kv: -len(kv[1])):
             r_eets = [r.eet_min for r in rrecs if r.eet_min is not None]
@@ -463,6 +516,7 @@ def _fpl_stats(rows: list[FplArchive]) -> list[dict]:
                 "eet_avg_min": round(mean(r_eets)) if r_eets else None,
                 "last_flown": max(r.flight_date for r in rrecs),
                 "aircraft": _ac_breakdown(rrecs),
+                "navblue_number": navblue_by_canon.get(_navblue_match_key(canon)),
             })
 
         result.append({
@@ -537,3 +591,511 @@ async def fpl_history_stats(
         rows = [r for r in rows if _airline_code(r.callsign) == airline]
 
     return {"start": start, "end": end, "count": len(rows), "groups": _fpl_stats(rows), "airlines": airlines}
+
+
+@router.get("/history/waypoint-search")
+async def fpl_waypoint_search(
+    waypoint: str = Query(..., description="검색할 waypoint/fix 이름, 쉼표로 여러 개 주면 전부 지나야 매칭(AND)"),
+    airline: Optional[str] = Query(None, description="콜사인 앞 항공사 코드로 필터, 비우면 전체"),
+    start: Optional[str] = Query(None, description="YYYY-MM-DD, 비우면 수집된 전체 기간"),
+    end: Optional[str] = Query(None, description="YYYY-MM-DD, 비우면 수집된 전체 기간"),
+):
+    """fpl_archive 전체(dep/arr 제한 없음)에서 특정 waypoint(들)를 실제로 지나간
+    ATC 제출 이력을 찾음. 항로 문자열엔 항공로 연결점만 적혀있고 중간 경유 fix는
+    생략된 경우가 많아서, 문자열 검색이 아니라 항로를 실제 좌표까지 풀어서
+    (resolve_route_tokens) 그 지점을 지나는지 확인함 — 같은 항로 문자열은 한 번만
+    풀어서 캐시. waypoint를 쉼표로 여러 개 주면 그 항로가 전부를 지나야만 매칭
+    (AND) — "A도 지나고 B도 지나는 항로"처럼 좁혀 찾을 때 씀.
+
+    다만 이건 로컬에 이미 수집돼 있는 구간/기간에서만 찾을 수 있음 — "결과 0건"이
+    "한 번도 안 지나감"이 아니라 "아직 그 구간을 수집 안 함"일 수 있어서, coverage에
+    지금 검색 대상이 어떤 dep/arr·기간인지를 같이 내려줌.
+    """
+    wps = [w.strip().upper() for w in waypoint.split(",") if w.strip()]
+    if not wps:
+        return {"error": "waypoint를 입력하세요"}
+
+    async with FplSessionLocal() as session:
+        q = select(FplArchive)
+        if start:
+            q = q.where(FplArchive.flight_date >= start)
+        if end:
+            q = q.where(FplArchive.flight_date <= end)
+        result = await session.execute(q)
+        rows = result.scalars().all()
+
+    airline = (airline or "").strip().upper()
+    if airline:
+        rows = [r for r in rows if _airline_code(r.callsign) == airline]
+
+    fix_set_cache: dict[str, set[str]] = {}
+
+    def route_fix_set(route: str) -> set[str]:
+        if route not in fix_set_cache:
+            tokens = route.split()
+            try:
+                _, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
+            except Exception:
+                fix_set_cache[route] = set(tokens)
+            else:
+                fix_set_cache[route] = set(passed_fixes) | set(tokens)
+        return fix_set_cache[route]
+
+    def passes_through_all(route: str) -> bool:
+        fixes = route_fix_set(route)
+        return all(wp in fixes for wp in wps)
+
+    matches = [r for r in rows if r.route and passes_through_all(r.route)]
+    matches.sort(key=lambda r: r.flight_date, reverse=True)
+
+    od_pairs = sorted({(r.dep, r.arr) for r in rows})
+    dates = [r.flight_date for r in rows]
+
+    return {
+        "waypoints": wps,
+        "count": len(matches),
+        "flights": [
+            {
+                "ams_rec_pk": r.ams_rec_pk, "flight_date": r.flight_date, "callsign": r.callsign,
+                "dep": r.dep, "arr": r.arr, "ac_type": r.ac_type, "eet_min": r.eet_min, "route": r.route,
+            }
+            for r in matches
+        ],
+        "coverage": {
+            "od_pairs": [{"dep": d, "arr": a} for d, a in od_pairs],
+            "date_range": {"start": min(dates), "end": max(dates)} if dates else None,
+            "total_archived": len(rows),
+        },
+    }
+
+
+# ── 우회입항 시나리오 조회 ──────────────────────────────────────────────────
+# ATFM 우회입항 절차 대응용 — "지금 이 순간 흐름관리가 걸리면 몇 편이나 영향권
+# (제약 waypoint 필드편)에 있고, 그중 몇 편이 이미 우회 waypoint로 나가고
+# 있는지"를 실시간 스냅샷으로 보여줌. fpl_archive(과거 이력)가 아니라 FOIS
+# 라이브 스케줄+FPL을 그 자리에서 조회함 — "출발예정"은 정확한 시각이 필요한데
+# 아카이브엔 flight_date만 있고 시:분이 없어서 과거 이력으로는 이 판단이 안 됨.
+
+@router.get("/country/list")
+async def country_list():
+    """국가코드 입력창 옆 '?' 설명용 — 실제 로드된 NAVDATA 기준으로 검색 가능한
+    국가만 보여줌(전세계 코드를 다 나열하면 의미 없음)."""
+    return {"countries": available_countries(list(store.airports.keys()))}
+
+
+_scenario_tasks: dict[str, dict] = {}
+
+
+def _flight_datetime(d: date, hhmm: Optional[str]) -> Optional[datetime]:
+    m = _hhmm_to_min(hhmm)
+    if m is None:
+        return None
+    return datetime(d.year, d.month, d.day) + timedelta(minutes=m)
+
+
+async def _build_reroute_recommendations(constrained_flights: list[dict], diversion_wps: list[str]) -> dict:
+    """제약 waypoint로 걸린 편들의 OD페어별로, fpl_archive(전항공사 과거 이력)에서
+    우회 waypoint를 실제로 지난 전례를 찾아 추천함. 전례가 없으면 지어내지 않고
+    빈 리스트로 둠. 같은 OD로 낸 적 있는 항로가 NAVBLUE 항로DB에도 등록돼 있으면
+    그 번호(#N)를 같이 붙임(참고용 — 없다고 못 쓰는 항로는 아님)."""
+    od_pairs = sorted({(f["dep"], f["arr"]) for f in constrained_flights if f.get("dep") and f.get("arr")})
+    if not od_pairs or not diversion_wps:
+        return {}
+
+    async with FplSessionLocal() as session:
+        result = await session.execute(select(FplArchive))
+        rows = result.scalars().all()
+
+    fix_set_cache: dict[str, set[str]] = {}
+
+    def route_fix_set(route: str) -> set[str]:
+        if route not in fix_set_cache:
+            tokens = route.split()
+            try:
+                _, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
+            except Exception:
+                fix_set_cache[route] = set(tokens)
+            else:
+                fix_set_cache[route] = set(passed_fixes) | set(tokens)
+        return fix_set_cache[route]
+
+    recs: dict[str, list[dict]] = {}
+    for dep, arr in od_pairs:
+        matches = [
+            r for r in rows
+            if r.dep == dep and r.arr == arr and r.route
+            and all(wp in route_fix_set(r.route) for wp in diversion_wps)
+        ]
+        # 표시용 route는 원문(raw) 대신 canonical(연결점만 남긴) 형태로 —
+        # 같은 항공로를 반복 경유fix 표기해서 낸 것과 안 낸 것이 다른 항로처럼
+        # 보이면 안 되니, 애초에 그룹핑 키로 쓰는 canonical 그대로를 노출함
+        canon_groups: dict[str, dict] = {}
+        for r in matches:
+            canon = _canonicalize_route(r.route)
+            g = canon_groups.setdefault(canon, {"count": 0, "last_flown": r.flight_date, "airlines": set()})
+            g["count"] += 1
+            g["airlines"].add(_airline_code(r.callsign))
+            if r.flight_date >= g["last_flown"]:
+                g["last_flown"] = r.flight_date
+
+        navblue_matches = store.get_routes(origin=dep, destination=arr, fix=",".join(diversion_wps))
+        navblue_by_canon = {_navblue_match_key(rt.route_str): rt.number for rt in navblue_matches}
+
+        recs[f"{dep}-{arr}"] = [
+            {
+                "route": canon, "count": g["count"], "last_flown": g["last_flown"],
+                "navblue_number": navblue_by_canon.get(_navblue_match_key(canon)),
+                "airlines": sorted(g["airlines"]),
+            }
+            for canon, g in sorted(canon_groups.items(), key=lambda kv: -kv[1]["count"])
+        ]
+    return recs
+
+
+async def _run_scenario_query(
+    task_id: str, airports: list[str], direction: str,
+    start: datetime, end: datetime, constrained: list[str], diversion: list[str],
+) -> None:
+    dates: list[date] = []
+    d = start.date()
+    while d <= end.date():
+        dates.append(d)
+        d += timedelta(days=1)
+
+    candidates: dict[int, dict] = {}
+    async with httpx.AsyncClient(timeout=15) as client:
+        for ap in airports:
+            for d in dates:
+                if _scenario_tasks[task_id].get("cancelled"):
+                    _scenario_tasks[task_id]["status"] = "cancelled"
+                    return
+                try:
+                    flights = await _fetch_schedule(
+                        client,
+                        dep=ap if direction == "dep" else "",
+                        arr=ap if direction == "arr" else "",
+                        srch_date=d.isoformat(),
+                    )
+                except Exception:
+                    continue
+                for f in flights:
+                    pk = f.get("ams_rec_pk")
+                    if not pk or pk in candidates:
+                        continue
+                    if f.get("atd"):
+                        continue  # 이미 출발함 — "출발예정"이 아님
+                    sched_dt = _flight_datetime(d, f.get("etd") or f.get("sched_time"))
+                    if sched_dt is None or not (start <= sched_dt <= end):
+                        continue
+                    candidates[pk] = {**f, "sched_dt": sched_dt}
+
+        _scenario_tasks[task_id].update(total=len(candidates), processed=0)
+
+        constrained_out: list[dict] = []
+        diversion_out: list[dict] = []
+        for pk, f in candidates.items():
+            if _scenario_tasks[task_id].get("cancelled"):
+                _scenario_tasks[task_id]["status"] = "cancelled"
+                return
+            try:
+                raw = await _fetch_fpl_raw(client, pk)
+                dep_icao, dest_icao, route_tokens, eet = _parse_fpl_route(raw)
+                if dep_icao and dest_icao:
+                    tokens = [dep_icao, *route_tokens, dest_icao]
+                    _, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
+                    fix_set = set(passed_fixes) | set(tokens)
+                    row = {
+                        "ams_rec_pk": pk, "callsign": f.get("callsign") or "",
+                        "dep": f.get("dep") or dep_icao, "arr": f.get("arr") or dest_icao,
+                        "ac_type": f.get("ac_type"), "sched_dep": f["sched_dt"].isoformat(),
+                        "route": " ".join(tokens),
+                    }
+                    if constrained and all(wp in fix_set for wp in constrained):
+                        constrained_out.append(dict(row))
+                    if diversion and all(wp in fix_set for wp in diversion):
+                        diversion_out.append(dict(row))
+            except Exception:
+                pass
+            _scenario_tasks[task_id]["processed"] += 1
+            await asyncio.sleep(0.2)
+
+    constrained_out.sort(key=lambda r: r["sched_dep"])
+    diversion_out.sort(key=lambda r: r["sched_dep"])
+    recommendations = await _build_reroute_recommendations(constrained_out, diversion)
+
+    _scenario_tasks[task_id].update(
+        status="done", constrained_flights=constrained_out,
+        diversion_flights=diversion_out, recommendations=recommendations,
+    )
+
+
+@router.post("/scenario/query")
+async def scenario_query(
+    background_tasks: BackgroundTasks,
+    country: Optional[str] = Query(None, description="ISO 국가코드 2글자, airport와 둘 중 하나만"),
+    airport: Optional[str] = Query(None, description="공항 ICAO, country와 둘 중 하나만"),
+    direction: str = Query(..., description="'dep' 또는 'arr'"),
+    start: str = Query(..., description="ISO datetime, 예: 2026-08-15T19:00:00"),
+    end: str = Query(..., description="ISO datetime"),
+    constrained: str = Query(..., description="제약 waypoint, 콤마로 여러 개면 전부 지나야 매칭"),
+    diversion: Optional[str] = Query(None, description="우회 waypoint, 콤마로 여러 개면 전부 지나야 매칭. 비우면 우회통과편/추천은 생략하고 제약경로 통과편만 보여줌"),
+):
+    """국가 또는 공항 + 방향 + 시간범위로 아직 출발 안 한 전항공사 편을 실시간
+    조회해서, 제약/우회 waypoint 통과 여부로 나눠 보여줌. 시간대별로 편수가
+    꽤 될 수 있어(전항공사, FPL은 편당 1콜) 백그라운드 task + 폴링으로 처리."""
+    if direction not in ("dep", "arr"):
+        return {"error": "direction은 'dep' 또는 'arr'이어야 합니다"}
+    if bool(country) == bool(airport):
+        return {"error": "country 또는 airport 중 하나만 입력하세요"}
+    try:
+        start_dt = datetime.fromisoformat(start)
+        end_dt = datetime.fromisoformat(end)
+    except ValueError:
+        return {"error": "Invalid datetime format"}
+    if end_dt <= start_dt:
+        return {"error": "end는 start보다 나중이어야 합니다"}
+    if end_dt - start_dt > timedelta(hours=48):
+        return {"error": "한 번에 최대 48시간까지 조회할 수 있습니다"}
+
+    if airport:
+        airport = airport.strip().upper()
+        if airport not in store.airports:
+            return {"error": f"알 수 없는 공항: {airport}"}
+        airports = [airport]
+    else:
+        airports = airports_in_country(list(store.airports.keys()), country or "")
+        if not airports:
+            return {"error": f"NAVDATA에 이 국가코드에 속하는 공항이 없습니다: {country}"}
+
+    constrained_wps = [w.strip().upper() for w in constrained.split(",") if w.strip()]
+    diversion_wps = [w.strip().upper() for w in (diversion or "").split(",") if w.strip()]
+    if not constrained_wps:
+        return {"error": "constrained를 입력하세요"}
+
+    task_id = str(uuid.uuid4())
+    _scenario_tasks[task_id] = {
+        "status": "running", "total": 0, "processed": 0, "cancelled": False,
+        "constrained_flights": [], "diversion_flights": [], "recommendations": {},
+    }
+    background_tasks.add_task(
+        _run_scenario_query, task_id, airports, direction, start_dt, end_dt, constrained_wps, diversion_wps,
+    )
+    return {"task_id": task_id, "airport_count": len(airports)}
+
+
+@router.get("/scenario/status/{task_id}")
+async def scenario_status(task_id: str):
+    t = _scenario_tasks.get(task_id)
+    if not t:
+        return {"error": "Task not found"}
+    return t
+
+
+# ── 우회 waypoint 추론 ──────────────────────────────────────────────────────
+# 제약 waypoint만 주어졌을 때, 우회 waypoint가 뭔지 몰라도 과거 실적으로 추천함.
+# OD별로 "평시 항로"(그 OD에서 제일 많이 쓴 canonical 항로)가 이 waypoint를
+# 지나는 경우를 찾고, 같은 OD의 다른(소수) 변형 항로들과 토큰 단위로 diff해서
+# 실제로 그 자리에 뭘 탔는지 추출 — 자사/타사 구분 없이 전부 집계.
+# 임계치·최소표본 없이 나오는 대로 다 보여줌(판단은 사용자가 함) — 다만 실제
+# 우회 waypoint는 보통 FIR 경계 지점이라, 후보를 FIR 경계 근접 여부로 정렬은 함
+# (숨기지는 않음 — 경계가 아닌 것도 아래에 그대로 다 보임).
+
+_FIR_BOUNDARY_TOL_KM = 20  # VATSIM FIR 데이터가 실제 ATS 경계의 근사치라 약간 여유를 둠
+
+
+def _point_seg_dist_km(plon: float, plat: float, alon: float, alat: float, blon: float, blat: float) -> float:
+    """점-선분 최단거리(km) — 위경도를 로컬 평면으로 근사 투영(경도는 위도 코사인
+    보정)해서 계산. 경계 근접 여부 판정용이라 이 정도 근사로 충분함."""
+    lat0 = math.radians((alat + blat) / 2)
+    kx, ky = 111.32 * math.cos(lat0), 110.57
+    px, py = plon * kx, plat * ky
+    ax, ay = alon * kx, alat * ky
+    bx, by = blon * kx, blat * ky
+    dx, dy = bx - ax, by - ay
+    if dx == 0 and dy == 0:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+    cx, cy = ax + t * dx, ay + t * dy
+    return math.hypot(px - cx, py - cy)
+
+
+# VATSIM FIR 데이터는 각국 ACC(관제권역) 세분화 경계까지 별개 폴리곤으로 들어있어서
+# (예: 중국은 상하이 FIR 하나가 Nanchang/Hefei/Xiamen ACC 등 내부 경계로 또 쪼개짐)
+# 전세계 427개를 다 대상으로 하면 "그 나라 관제권 내부 경계"에 우연히 가깝다는
+# 이유만으로 엉뚱한 fix가 "경계"로 잘못 분류됨(예: ELNEX가 상하이 FIR 내부의
+# Nanchang ACC 경계에 9.9km — 실제로는 인천FIR과 무관). 이 기능은 인천FIR
+# 우회입항 맥락이라 인천FIR(RKRR) 경계 하나만 기준으로 삼음.
+_TARGET_FIR_ICAO = "RKRR"
+
+
+def _min_dist_to_fir_boundary_km(lon: float, lat: float) -> float:
+    best = float("inf")
+    for feat in _FIR_DATA.get("features", []):
+        if feat.get("properties", {}).get("icao") != _TARGET_FIR_ICAO:
+            continue
+        geom = feat.get("geometry") or {}
+        gtype = geom.get("type")
+        polys = geom.get("coordinates") or []
+        if gtype == "Polygon":
+            polys = [polys]
+        elif gtype != "MultiPolygon":
+            continue
+        for poly in polys:
+            for ring in poly:
+                for i in range(len(ring) - 1):
+                    d = _point_seg_dist_km(lon, lat, ring[i][0], ring[i][1], ring[i + 1][0], ring[i + 1][1])
+                    if d < best:
+                        best = d
+    return best
+
+
+def _fix_coord(name: str) -> Optional[tuple[float, float]]:
+    cands = store.fix_lookup.get(name)
+    if not cands:
+        return None
+    lon, lat = cands[0][0], cands[0][1]
+    return lon, lat
+
+
+@router.get("/history/infer-diversion")
+async def infer_diversion(
+    waypoint: str = Query(..., description="제약 waypoint — 이 자리에 실제로 뭘 대신 탔는지 과거 이력에서 추론"),
+    dep: Optional[str] = Query(None, description="출발공항 ICAO로 좁히기(선택) — 같은 constrained fix라도 목적지 방면에 따라 우회 fix가 다를 수 있어서"),
+    arr: Optional[str] = Query(None, description="도착공항 ICAO로 좁히기(선택)"),
+):
+    wp = waypoint.strip().upper()
+    if not wp:
+        return {"error": "waypoint를 입력하세요"}
+    dep = (dep or "").strip().upper()
+    arr = (arr or "").strip().upper()
+
+    async with FplSessionLocal() as session:
+        q = select(FplArchive)
+        if dep:
+            q = q.where(FplArchive.dep == dep)
+        if arr:
+            q = q.where(FplArchive.arr == arr)
+        rows = (await session.execute(q)).scalars().all()
+
+    by_od: dict[tuple[str, str], dict[str, list[FplArchive]]] = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        if not r.route:
+            continue
+        canon = _canonicalize_route(r.route)
+        canon_tokens = canon.split()
+        if len(canon_tokens) < 2:
+            continue
+        # r.dep/r.arr(FOIS 스케줄 메타데이터)이 아니라 항로 문자열 자체의
+        # 첫/끝 토큰으로 묶음 — 하나의 편명으로 여러 구간을 도는 화물기 등은
+        # 스케줄상 dep이 그 편의 "원래" 출발지로 찍혀서(FplArchive.dep) 실제
+        # 이 FPL이 필드된 구간(항로 원문의 실제 출발지)과 다른 경우가 있음.
+        # 그대로 두면 전혀 무관한 두 항로가 같은 OD로 묶여 diff가 무의미해짐
+        # (실측: LAMEN이 SAPRA 후보로 잘못 나온 사례 — KORD/PANC 라벨인데
+        # 항로 원문은 VVNB/ZGGG로 시작).
+        route_dep, route_arr = canon_tokens[0], canon_tokens[-1]
+        by_od[(route_dep, route_arr)][canon].append(r)
+
+    fix_set_cache: dict[str, set[str]] = {}
+
+    def route_fix_set(route: str) -> set[str]:
+        if route not in fix_set_cache:
+            tokens = route.split()
+            try:
+                _, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
+            except Exception:
+                fix_set_cache[route] = set(tokens)
+            else:
+                fix_set_cache[route] = set(passed_fixes) | set(tokens)
+        return fix_set_cache[route]
+
+    candidate_counter: dict[str, int] = defaultdict(int)  # 실제 편수 — 화면 표시용, 컷 없이 그대로
+    candidate_weight: dict[str, float] = defaultdict(float)  # 정렬용 가중치(겹침율 반영) — 아래 참고
+    candidate_examples: dict[str, list[dict]] = defaultdict(list)
+    candidate_airlines: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))  # 후보 전체 기준(예시 5개 제한 없이) 항공사별 건수
+
+    for (od_dep, od_arr), canon_groups in by_od.items():
+        # 정상 항로 = 이 OD에서 제일 많이 쓴 canonical 항로
+        normal_canon, normal_recs = max(canon_groups.items(), key=lambda kv: len(kv[1]))
+        if wp not in route_fix_set(normal_canon):
+            continue  # 이 OD는 애초에 평시 항로가 이 waypoint를 안 씀
+
+        normal_tokens = normal_canon.split()
+        for other_canon, other_recs in canon_groups.items():
+            if other_canon == normal_canon or wp in route_fix_set(other_canon):
+                continue  # 평시 항로 그 자체이거나, 여전히 그 waypoint를 지남(이탈 아님)
+
+            other_tokens = other_canon.split()
+            # 앞/뒤 토큰만 순서대로 비교하던 예전 방식은, 중간에 SID/STAR 표기
+            # 차이 하나(예: BOPTA2A vs DCT)만 있어도 그 지점에서 비교가 멈춰버려
+            # 그 뒤에 이어지는 진짜 공통 구간(예: MUGUS)까지 "달라진 구간"으로
+            # 잘못 묶여 후보로 오염되는 문제가 있었음(실측: KABAM 제약 조회 시
+            # MUGUS가 후보로 잘못 나온 사례 — 두 항로 다 MUGUS를 그대로 지나가는데
+            # 그 앞의 SID 표기차 때문에 정렬이 어긋나서 발생). SequenceMatcher로
+            # 실제 최장 공통 부분열을 찾아 진짜 달라진 구간만 뽑아냄.
+            sm = difflib.SequenceMatcher(None, normal_tokens, other_tokens, autojunk=False)
+            common = sum(block.size for block in sm.get_matching_blocks())
+            # 컷오프로 자르지 않고 가중치로만 씀 — 완전히 자르면 태풍처럼 크게
+            # 돌아간 진짜 이탈(겹침율이 낮게 나옴)까지 같이 날아가 버림. 노이즈는
+            # 매번 다른 항로라 흩어지고, 진짜 우회는 같은 대체 항로가 반복되니
+            # 가중치 누적으로 자연스럽게 구분되게 함.
+            ratio = common / max(len(normal_tokens), len(other_tokens))
+
+            detour: list[str] = []
+            for tag, _, _, j1, j2 in sm.get_opcodes():
+                if tag != "equal":
+                    detour.extend(other_tokens[j1:j2])
+            # 항공로명/DCT는 빼고 실제 fix만 후보로
+            detour_fixes = [t for t in detour if t not in store.airway_names and t != "DCT"]
+
+            # 이 이탈 항로를 실제로 낸 편들 — "어느 항공사가 언제 어느 구간에서
+            # 탔는지"가 없으면 후보 fix가 왜 나왔는지 검증할 방법이 없어서 추가함
+            example_airlines: dict[str, int] = defaultdict(int)
+            for r in other_recs:
+                example_airlines[_airline_code(r.callsign)] += 1
+            sample_flights = [
+                {"callsign": r.callsign, "flight_date": r.flight_date}
+                for r in sorted(other_recs, key=lambda r: r.flight_date, reverse=True)[:5]
+            ]
+
+            for f in detour_fixes:
+                candidate_counter[f] += len(other_recs)
+                candidate_weight[f] += len(other_recs) * ratio
+                for al, c in example_airlines.items():
+                    candidate_airlines[f][al] += c
+                if len(candidate_examples[f]) < 5:
+                    candidate_examples[f].append({
+                        "dep": od_dep, "arr": od_arr, "count": len(other_recs),
+                        "normal_route": normal_canon, "diverted_route": other_canon,
+                        "common_ratio": round(ratio, 2),
+                        "airlines": [{"code": al, "count": c} for al, c in sorted(example_airlines.items(), key=lambda kv: -kv[1])],
+                        "flights": sample_flights,
+                    })
+
+    # 실제 우회 waypoint는 보통 FIR 경계 지점이라, 경계에 가까운 후보를 우선
+    # 보여줌 — 숨기는 게 아니라 정렬만 바꾸는 것, 경계 아닌 것도 그대로 다 나옴
+    boundary_dist: dict[str, Optional[float]] = {}
+    for f in candidate_counter:
+        coord = _fix_coord(f)
+        boundary_dist[f] = round(_min_dist_to_fir_boundary_km(coord[0], coord[1]), 1) if coord else None
+
+    def is_boundary(f: str) -> bool:
+        d = boundary_dist[f]
+        return d is not None and d <= _FIR_BOUNDARY_TOL_KM
+
+    ranked = sorted(candidate_counter.items(), key=lambda kv: (not is_boundary(kv[0]), -candidate_weight[kv[0]]))
+    return {
+        "waypoint": wp,
+        "dep": dep or None,
+        "arr": arr or None,
+        "candidates": [
+            {
+                "waypoint": f, "count": c, "examples": candidate_examples[f],
+                "fir_boundary": is_boundary(f), "boundary_dist_km": boundary_dist[f],
+                "airlines": [
+                    {"code": al, "count": ac}
+                    for al, ac in sorted(candidate_airlines[f].items(), key=lambda kv: -kv[1])
+                ],
+            }
+            for f, c in ranked
+        ],
+    }

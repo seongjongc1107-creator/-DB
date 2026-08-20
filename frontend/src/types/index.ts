@@ -287,6 +287,7 @@ export interface FplRouteStat {
   // 이 항로를 실제로 탄 기종별 건수·평균 비행시간 — 항로가 짧아서 빠른 건지
   // 기종이 빨라서 빠른 건지 구분하려면 전체 평균이 아니라 이 단위로 봐야 함
   aircraft: FplAircraftStat[]
+  navblue_number: number | null
 }
 
 export interface FplAirlineBreakdown {
@@ -336,7 +337,130 @@ export interface FplHistoryStats {
   error?: string
 }
 
+export interface FplWaypointMatch {
+  ams_rec_pk: number
+  flight_date: string
+  callsign: string
+  dep: string
+  arr: string
+  ac_type: string | null
+  eet_min: number | null
+  route: string
+}
+
+export interface FplWaypointCoverage {
+  od_pairs: { dep: string; arr: string }[]
+  date_range: { start: string; end: string } | null
+  total_archived: number
+}
+
+export interface FplWaypointSearchResult {
+  waypoints: string[]
+  count: number
+  flights: FplWaypointMatch[]
+  coverage: FplWaypointCoverage
+  error?: string
+}
+
+// ─── 우회입항 시나리오 조회 ───────────────────────────────────────────────
+
+export interface CountryInfo {
+  code: string
+  name: string
+}
+
+export interface ScenarioFlight {
+  ams_rec_pk: number
+  callsign: string
+  dep: string
+  arr: string
+  ac_type: string | null
+  sched_dep: string
+  route: string
+}
+
+export interface ScenarioReroute {
+  route: string
+  count: number
+  last_flown: string
+  navblue_number: number | null
+  airlines: string[]
+}
+
+export interface ScenarioQueryStatus {
+  status: 'running' | 'done' | 'error' | 'cancelled'
+  total: number
+  processed: number
+  constrained_flights: ScenarioFlight[]
+  diversion_flights: ScenarioFlight[]
+  recommendations: Record<string, ScenarioReroute[]>
+  error?: string
+}
+
+export interface DiversionAirlineCount {
+  code: string
+  count: number
+}
+
+export interface DiversionSampleFlight {
+  callsign: string
+  flight_date: string
+}
+
+export interface DiversionCandidateExample {
+  dep: string
+  arr: string
+  count: number
+  normal_route: string
+  diverted_route: string
+  common_ratio: number
+  airlines: DiversionAirlineCount[]
+  flights: DiversionSampleFlight[]
+}
+
+export interface DiversionCandidate {
+  waypoint: string
+  count: number
+  examples: DiversionCandidateExample[]
+  fir_boundary: boolean
+  boundary_dist_km: number | null
+  airlines: DiversionAirlineCount[]
+}
+
+export interface DiversionInferResult {
+  waypoint: string
+  dep: string | null
+  arr: string | null
+  candidates: DiversionCandidate[]
+  error?: string
+}
+
 // ─── 관리자: 근간 데이터(NAVDATA/항로 DB) 업로드 ─────────────────────────────
+
+export interface FplArchiveStatus {
+  total_flights: number
+  od_pair_count: number
+  date_range: { start: string; end: string } | null
+  last_collected_at: string | null
+  top_od_pairs: { dep: string; arr: string; count: number }[]
+}
+
+export interface SchedulerStatus {
+  running: boolean
+  started_at: string | null
+  finished_at: string | null
+  jobs_done: number
+  jobs_total: number
+  last_error: string | null
+}
+
+export interface BaseAirportCoverage {
+  airport: string
+  count: number
+  date_range: { start: string; end: string } | null
+  covered: boolean
+  verified_empty: boolean
+}
 
 export interface AdminDataStatus {
   airports: number
@@ -348,9 +472,12 @@ export interface AdminDataStatus {
   suspicious_sample: string[]
   minima_airports: number
   backups: string[]
+  fpl_archive: FplArchiveStatus
+  scheduler: SchedulerStatus
+  base_airport_coverage: BaseAirportCoverage[]
 }
 
-export interface AdminUploadResult extends Omit<AdminDataStatus, 'minima_airports' | 'backups'> {
+export interface AdminUploadResult extends Omit<AdminDataStatus, 'minima_airports' | 'backups' | 'fpl_archive' | 'scheduler' | 'base_airport_coverage'> {
   ok: boolean
   target: 'navdata' | 'routes'
   backup: string | null
