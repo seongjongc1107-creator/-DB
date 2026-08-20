@@ -118,7 +118,10 @@ export default function MapView() {
     }
   }, [state.layers.traffic, mapLoaded])
 
-  // Traffic auto-refresh (30s, only when layer is on)
+  // Traffic auto-refresh (10s, only when layer is on) — OpenSky 자체 상태벡터
+  // 갱신 주기도 대략 이 정도(수신국 밀도에 따라 5~15초)라, 이보다 더 자주
+  // 조회해도 실제로 더 새 데이터가 오진 않고 익명 API 요청량만 축냄 —
+  // 백엔드 서버 캐시 TTL(app/routers/traffic.py의 _CACHE_TTL)도 같이 맞춰야 함
   useEffect(() => {
     if (!state.layers.traffic) return
     async function fetchTraffic() {
@@ -134,7 +137,7 @@ export default function MapView() {
       }
     }
     fetchTraffic()
-    const id = setInterval(fetchTraffic, 30_000)
+    const id = setInterval(fetchTraffic, 10_000)
     return () => clearInterval(id)
   }, [state.layers.traffic, dispatch])
 

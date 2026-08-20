@@ -14,7 +14,10 @@ router = APIRouter()
 
 # East Asia bounding box (SE Asia → Northern Japan/Korea)
 _BBOX = dict(lamin=10, lamax=55, lomin=100, lomax=150)
-_CACHE_TTL = 30  # seconds
+# OpenSky 자체 상태벡터 갱신 주기도 대략 10초 안팎(수신국 밀도에 따라 5~15초)이라,
+# 이보다 더 짧게 잡아도 실제로 더 새 데이터가 오진 않고 익명 API 요청량만 축남.
+# 프론트 폴링 주기(MapView.tsx)도 이 값과 맞춰서 씀
+_CACHE_TTL = 10  # seconds
 
 _cache: dict = {'data': None, 'ts': 0.0}
 
