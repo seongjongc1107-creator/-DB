@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, UploadFile
 from sqlalchemy import func, select
 from starlette.concurrency import run_in_threadpool
 
@@ -20,7 +20,7 @@ from ..admin_auth import check_password
 from ..data_loader import store, DATA_DIR, NAVDATA_CSV, ROUTES_CSV
 from ..fpl_db import FplSessionLocal
 from ..fpl_models import FplArchive, FplCollectionRun
-from ..scheduler import BASE_AIRPORTS, get_scheduler_status
+from ..scheduler import BASE_AIRPORTS, get_scheduler_status, run_collection_now
 from ..wx_minima import WX_MINIMA_CSV, load_wx_minima_file, get_seed as get_minima_seed, parse_wx_minima_csv
 
 router = APIRouter()
@@ -166,6 +166,18 @@ async def data_status():
         "scheduler": get_scheduler_status(),
         "base_airport_coverage": await _base_airport_coverage(),
     }
+
+
+@router.post("/data/refresh-archive")
+async def refresh_archive(background_tasks: BackgroundTasks):
+    """관리자 페이지의 '항로 실적 아카이브' 새로고침 — 로컬 집계만 다시 하는 게
+    아니라, 매일 새벽 3시 스케줄러가 하는 것과 똑같이 거점 16개 공항을 FOIS에서
+    실제로 다시 긁어옴(최근 7일 윈도우, dedup으로 중복 스킵). 비밀번호 없이도
+    누를 수 있게 둠 — 읽기 전용 조회를 다시 트리거하는 것뿐이라 무해함."""
+    if get_scheduler_status()["running"]:
+        return {"started": False, "reason": "이미 수집이 진행 중입니다"}
+    background_tasks.add_task(run_collection_now)
+    return {"started": True}
 
 
 @router.post("/data/{target}")

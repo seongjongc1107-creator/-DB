@@ -390,20 +390,51 @@ export default function AdminPage({ onClose }: Props) {
   const [fplCheckedAt, setFplCheckedAt] = useState<Date | null>(null)
 
   function loadStatus() {
-    return api.admin.status().then(setStatus).catch(() => {})
+    return api.admin.status().then(s => { setStatus(s); return s }).catch(() => null)
+  }
+
+  // 스케줄러(매일 새벽 3시 자동 수집)와 같은 로직을 그 자리에서 트리거 —
+  // 거점 16개 공항을 FOIS에서 실제로 다시 긁어옴(최근 7일, dedup으로 중복
+  // 스킵). 로컬 집계만 다시 하는 게 아니라 "지금 시점 최신 데이터를 가져오라"는
+  // 의미 그대로 동작하게 함. 완료까지 몇 분 걸릴 수 있어 폴링하며 진행상황을
+  // 계속 반영함.
+  async function pollUntilCollectionDone() {
+    await new Promise<void>(resolve => {
+      const poll = setInterval(async () => {
+        const s = await api.admin.status()
+        setStatus(s)
+        if (!s.scheduler?.running) {
+          clearInterval(poll)
+          resolve()
+        }
+      }, 2000)
+    })
   }
 
   async function handleFplRefresh() {
     setFplRefreshing(true)
     try {
-      await loadStatus()
+      const res = await api.admin.refreshArchive()
+      if (res.started) {
+        await pollUntilCollectionDone()
+      } else {
+        // 이미 다른 곳에서 수집이 도는 중이면 그 진행상황을 그대로 따라감
+        const s = await loadStatus()
+        if (s?.scheduler?.running) await pollUntilCollectionDone()
+      }
     } finally {
       setFplCheckedAt(new Date())
       setFplRefreshing(false)
     }
   }
 
-  useEffect(() => { handleFplRefresh() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // 페이지 첫 진입 시엔 새로 수집 트리거 없이 지금 DB 상태만 조회 —
+    // 이미 다른 데서 돈 수집이 진행 중이면 그 진행상황을 이어서 보여줌
+    loadStatus().then(async s => {
+      if (s?.scheduler?.running) await pollUntilCollectionDone()
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleDone(result: AdminUploadResult) {
     setLastResult(result)

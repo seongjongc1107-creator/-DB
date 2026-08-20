@@ -72,6 +72,13 @@ async def _run_daily_collection() -> None:
     _status.update(running=False, finished_at=date.today().isoformat())
 
 
+async def run_collection_now() -> None:
+    """관리자 페이지 '새로고침' 버튼 등에서 즉시 트리거 — 새벽 3시 스케줄과
+    똑같은 수집(거점 16곳, 최근 7일)을 그 자리에서 한 번 돌림. _run_daily_collection
+    안에서 이미 "실행 중이면 중복 방지" 가드가 있어서 그대로 재사용."""
+    await _run_daily_collection()
+
+
 _scheduler: Optional[AsyncIOScheduler] = None
 
 

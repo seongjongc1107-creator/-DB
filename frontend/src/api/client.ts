@@ -92,6 +92,8 @@ export const api = {
   },
   admin: {
     status: () => get<AdminDataStatus>('/admin/data/status'),
+    refreshArchive: () =>
+      fetch(`${BASE}/admin/data/refresh-archive`, { method: 'POST' }).then(r => r.json() as Promise<{ started: boolean; reason?: string }>),
     upload: async (target: 'navdata' | 'routes', file: File, password: string) => {
       const form = new FormData()
       form.append('file', file)
