@@ -247,6 +247,44 @@ async def _existing_fpl_pks(pks: list[int]) -> set[int]:
         return set(result.scalars().all())
 
 
+# FPL 원문은 편당 1콜(N+1)이라 예전엔 완전 순차 + 0.2초 페이싱으로 돌렸는데, 편수가
+# 많을수록(거점 16개 공항 등) 그만큼 느려짐 — 동시 요청 개수를 제한해서 병렬로
+# 돌리면 페이싱은 유지하면서도 훨씬 빠르게 끝남. 동시 개수는 FOIS에 순간적으로
+# 과도한 부담을 주지 않을 정도로 적당히 잡음(완전 무제한 병렬은 지양).
+_FPL_FETCH_CONCURRENCY = 6
+_FPL_FETCH_PACING = 0.05  # 요청 슬롯 하나당 최소 간격(초) — 병렬이어도 최소한의 예의
+
+
+async def _fetch_fpl_batch(client: httpx.AsyncClient, pks: list[int], is_cancelled):
+    """pks를 최대 _FPL_FETCH_CONCURRENCY개씩 동시에 가져와 파싱, 완료되는 대로
+    {"pk", "ok", "dep_icao", "dest_icao", "route_tokens", "eet"}를 yield함(실패 시 ok=False).
+    is_cancelled()가 True가 되면 아직 안 끝난 나머지는 취소하고 중단."""
+    sem = asyncio.Semaphore(_FPL_FETCH_CONCURRENCY)
+
+    async def worker(pk: int) -> dict:
+        async with sem:
+            try:
+                raw = await _fetch_fpl_raw(client, pk)
+                dep_icao, dest_icao, route_tokens, eet = _parse_fpl_route(raw)
+                result = {"pk": pk, "ok": True, "dep_icao": dep_icao, "dest_icao": dest_icao,
+                          "route_tokens": route_tokens, "eet": eet}
+            except Exception:
+                result = {"pk": pk, "ok": False}
+            await asyncio.sleep(_FPL_FETCH_PACING)
+            return result
+
+    tasks = [asyncio.create_task(worker(pk)) for pk in pks]
+    try:
+        for coro in asyncio.as_completed(tasks):
+            if is_cancelled():
+                break
+            yield await coro
+    finally:
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+
+
 async def _run_fpl_collect(task_id: str, dep: str, arr: str, start: date, end: date) -> None:
     days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
     _fpl_tasks[task_id].update({"total_days": len(days), "processed_days": 0, "total_flights": 0,
@@ -268,36 +306,39 @@ async def _run_fpl_collect(task_id: str, dep: str, arr: str, start: date, end: d
             have = await _existing_fpl_pks(pks)
             _fpl_tasks[task_id]["total_flights"] += len(pks)
 
-            for f in flights:
-                pk = f.get("ams_rec_pk")
-                if not pk:
-                    continue
-                if pk in have:
-                    _fpl_tasks[task_id]["skipped"] += 1
-                    continue
-                if _fpl_tasks[task_id].get("cancelled"):
-                    _fpl_tasks[task_id]["status"] = "cancelled"
-                    return
-                try:
-                    raw = await _fetch_fpl_raw(client, pk)
-                    dep_icao, dest_icao, route_tokens, eet = _parse_fpl_route(raw)
-                    route_str = " ".join([dep_icao, *route_tokens, dest_icao]) if dep_icao and dest_icao else None
-                    await _bulk_insert_fpl({
-                        "ams_rec_pk": pk,
-                        "flight_date": d.isoformat(),
-                        "callsign": f["callsign"] or "",
-                        "dep": f.get("dep") or dep_icao or "",
-                        "arr": f.get("arr") or dest_icao or "",
-                        "ac_type": f.get("ac_type"),
-                        "eet_min": _hhmm_to_min(eet),
-                        "route": route_str,
-                        "collected_at": datetime.now(timezone.utc),
-                    })
-                    _fpl_tasks[task_id]["collected"] += 1
-                except Exception:
+            by_pk = {f["ams_rec_pk"]: f for f in flights if f.get("ams_rec_pk")}
+            need = [pk for pk in by_pk if pk not in have]
+            _fpl_tasks[task_id]["skipped"] += len(by_pk) - len(need)
+
+            async for result in _fetch_fpl_batch(
+                client, need, lambda: _fpl_tasks[task_id].get("cancelled")
+            ):
+                pk = result["pk"]
+                if not result["ok"]:
                     _fpl_tasks[task_id]["failed"] += 1
-                # FPL은 편당 1콜이라(N+1) 짧게라도 페이싱을 둬야 FOIS에 부담이 안 감
-                await asyncio.sleep(0.2)
+                    continue
+                f = by_pk[pk]
+                dep_icao, dest_icao = result["dep_icao"], result["dest_icao"]
+                route_str = (
+                    " ".join([dep_icao, *result["route_tokens"], dest_icao])
+                    if dep_icao and dest_icao else None
+                )
+                await _bulk_insert_fpl({
+                    "ams_rec_pk": pk,
+                    "flight_date": d.isoformat(),
+                    "callsign": f["callsign"] or "",
+                    "dep": f.get("dep") or dep_icao or "",
+                    "arr": f.get("arr") or dest_icao or "",
+                    "ac_type": f.get("ac_type"),
+                    "eet_min": _hhmm_to_min(result["eet"]),
+                    "route": route_str,
+                    "collected_at": datetime.now(timezone.utc),
+                })
+                _fpl_tasks[task_id]["collected"] += 1
+
+            if _fpl_tasks[task_id].get("cancelled"):
+                _fpl_tasks[task_id]["status"] = "cancelled"
+                return
 
             _fpl_tasks[task_id]["processed_days"] += 1
 
@@ -793,31 +834,54 @@ async def _run_scenario_query(
 
         constrained_out: list[dict] = []
         diversion_out: list[dict] = []
-        for pk, f in candidates.items():
-            if _scenario_tasks[task_id].get("cancelled"):
-                _scenario_tasks[task_id]["status"] = "cancelled"
-                return
-            try:
-                raw = await _fetch_fpl_raw(client, pk)
-                dep_icao, dest_icao, route_tokens, eet = _parse_fpl_route(raw)
-                if dep_icao and dest_icao:
-                    tokens = [dep_icao, *route_tokens, dest_icao]
-                    _, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
-                    fix_set = set(passed_fixes) | set(tokens)
-                    row = {
-                        "ams_rec_pk": pk, "callsign": f.get("callsign") or "",
-                        "dep": f.get("dep") or dep_icao, "arr": f.get("arr") or dest_icao,
-                        "ac_type": f.get("ac_type"), "sched_dep": f["sched_dt"].isoformat(),
-                        "route": " ".join(tokens),
-                    }
-                    if constrained and all(wp in fix_set for wp in constrained):
-                        constrained_out.append(dict(row))
-                    if diversion and all(wp in fix_set for wp in diversion):
-                        diversion_out.append(dict(row))
-            except Exception:
-                pass
+
+        async for result in _fetch_fpl_batch(
+            client, list(candidates.keys()), lambda: _scenario_tasks[task_id].get("cancelled")
+        ):
+            pk = result["pk"]
             _scenario_tasks[task_id]["processed"] += 1
-            await asyncio.sleep(0.2)
+            if not result["ok"]:
+                continue
+            f = candidates[pk]
+            dep_icao, dest_icao = result["dep_icao"], result["dest_icao"]
+            if not (dep_icao and dest_icao):
+                continue
+            tokens = [dep_icao, *result["route_tokens"], dest_icao]
+            try:
+                _, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
+            except Exception:
+                continue
+            fix_set = set(passed_fixes) | set(tokens)
+            route_str = " ".join(tokens)
+            row = {
+                "ams_rec_pk": pk, "callsign": f.get("callsign") or "",
+                "dep": f.get("dep") or dep_icao, "arr": f.get("arr") or dest_icao,
+                "ac_type": f.get("ac_type"), "sched_dep": f["sched_dt"].isoformat(),
+                "route": route_str,
+            }
+            if constrained and all(wp in fix_set for wp in constrained):
+                constrained_out.append(dict(row))
+            if diversion and all(wp in fix_set for wp in diversion):
+                diversion_out.append(dict(row))
+
+            # 어차피 FPL을 다 받아왔으니 부수적으로 아카이브에도 같이 저장 — 우회입항
+            # 시나리오 조회를 쓸 때마다 fpl_archive가 자연히 같이 쌓이게 됨(dedup은
+            # upsert가 알아서 처리하므로 이미 있는 편이어도 안전)
+            await _bulk_insert_fpl({
+                "ams_rec_pk": pk,
+                "flight_date": f["sched_dt"].date().isoformat(),
+                "callsign": f.get("callsign") or "",
+                "dep": f.get("dep") or dep_icao,
+                "arr": f.get("arr") or dest_icao,
+                "ac_type": f.get("ac_type"),
+                "eet_min": _hhmm_to_min(result["eet"]),
+                "route": route_str,
+                "collected_at": datetime.now(timezone.utc),
+            })
+
+        if _scenario_tasks[task_id].get("cancelled"):
+            _scenario_tasks[task_id]["status"] = "cancelled"
+            return
 
     constrained_out.sort(key=lambda r: r["sched_dep"])
     diversion_out.sort(key=lambda r: r["sched_dep"])
