@@ -21,6 +21,7 @@ from ..data_loader import store, DATA_DIR, NAVDATA_CSV, ROUTES_CSV
 from ..fpl_db import FplSessionLocal
 from ..fpl_models import FplArchive, FplCollectionRun
 from ..scheduler import BASE_AIRPORTS, get_scheduler_status, run_collection_now
+from ..services import deploy as deploy_service
 from ..wx_minima import WX_MINIMA_CSV, load_wx_minima_file, get_seed as get_minima_seed, parse_wx_minima_csv
 
 router = APIRouter()
@@ -213,3 +214,23 @@ async def upload_data(target: str, file: UploadFile, password: str = Form(...)):
         "ok": True, "target": target, "backup": backup_name,
         "resolved": len(get_minima_seed()), "unresolved_iata": unresolved,
     }
+
+
+@router.get("/update-status")
+def update_status():
+    """사내 서버 자체 호스팅용 — 지금 반영된 커밋, 마지막 업데이트 확인/적용 시각을 보여줌.
+    비밀번호 없이도 조회 가능(읽기 전용)."""
+    return deploy_service.get_update_status()
+
+
+@router.post("/update-now")
+async def update_now(background_tasks: BackgroundTasks, password: str = Form(...)):
+    """GYSJ의 '지금 업데이트'와 동일한 역할 — main(백엔드 코드) + deploy-static(프론트
+    빌드)을 git으로 받아 반영하고, 반영됐으면 프로세스를 재시작한다(재시작은
+    Run-FlightRouteDB.ps1의 while-loop가 자동으로 다시 띄움). Render를 안 쓰는
+    자체 호스팅 환경에서만 의미 있는 엔드포인트."""
+    check_password(password)
+    result = await run_in_threadpool(deploy_service.check_and_apply_update)
+    if result["updated"]:
+        background_tasks.add_task(deploy_service.restart_process)
+    return result

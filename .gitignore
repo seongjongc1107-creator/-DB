@@ -17,3 +17,7 @@ frontend/dist/
 backend/data/backups/
 backend/metar_archive.db
 backend/fpl_archive.db
+
+## 사내 서버 자체 호스팅 (deploy.py) 관련 로컬 상태/임시 폴더
+backend/deploy_state.json
+deploy/
