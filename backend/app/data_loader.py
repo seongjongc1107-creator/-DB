@@ -220,6 +220,11 @@ class NavDataStore:
 
         self.loaded = False
 
+        # /api/routes/geometry가 필터 없이(전체 2766개 항로) 호출될 때마다 매번
+        # 새로 dict를 빌드+직렬화하면 11MB 응답에 수 초~수십 초가 걸림 — 페이지
+        # 로드마다 동일한 요청이 반복되므로 결과를 캐싱. reload() 시 무효화됨.
+        self.all_routes_geojson_cache: Optional[dict] = None
+
     # ------------------------------------------------------------------
     # Top-level loader
     # ------------------------------------------------------------------
@@ -265,6 +270,7 @@ class NavDataStore:
         self.route_by_dest = staging.route_by_dest
         self.route_by_token = staging.route_by_token
         self.loaded = True
+        self.all_routes_geojson_cache = None
 
     # ------------------------------------------------------------------
     # NAVDATA parsing

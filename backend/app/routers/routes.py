@@ -62,11 +62,19 @@ def route_geometry(
     if ids:
         id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()]
 
+    unfiltered = origin is None and destination is None and fix is None and id_list is None
+    if unfiltered and store.all_routes_geojson_cache is not None:
+        return store.all_routes_geojson_cache
+
     routes = store.get_routes(
         origin=origin, destination=destination, fix=fix, ids=id_list
     )
     features = [f for r in routes if (f := _route_feature(r)) is not None]
-    return {"type": "FeatureCollection", "features": features}
+    result = {"type": "FeatureCollection", "features": features}
+
+    if unfiltered:
+        store.all_routes_geojson_cache = result
+    return result
 
 
 @router.get("/alternatives")

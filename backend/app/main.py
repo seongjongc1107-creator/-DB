@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
@@ -40,6 +41,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 항로 geometry(11MB급) 같은 큰 JSON 응답이 많아 전송량을 줄이기 위해 gzip 압축 추가
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(routes.router, prefix="/api/routes", tags=["routes"])
 app.include_router(navdata.router, prefix="/api/navdata", tags=["navdata"])
