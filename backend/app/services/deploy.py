@@ -74,9 +74,15 @@ def _origin_url() -> str:
 
 
 def _rollback_backend(good_commit: str) -> None:
-    """새 코드가 깨졌을 때 마지막으로 정상 동작하던 커밋으로 되돌림."""
+    """새 코드가 깨졌을 때 마지막으로 정상 동작하던 커밋으로 되돌림.
+    코드를 되돌리는 것(git reset)이 핵심 안전장치라, 그 이후 패키지 재설치가
+    실패하더라도(예: uv 자체가 없는 극단적 상황) git reset의 효과까지 무효화되진
+    않도록 별도로 감싼다."""
     _run(["git", "reset", "--hard", good_commit], REPO_ROOT)
-    _install_requirements()
+    try:
+        _install_requirements()
+    except Exception:
+        logger.warning("롤백 후 패키지 재설치도 실패 — 코드는 되돌려졌지만 의존성 상태는 확인이 필요합니다")
 
 
 def _update_backend_code_from_git() -> bool:
@@ -95,22 +101,29 @@ def _update_backend_code_from_git() -> bool:
     if pull.returncode != 0:
         raise RuntimeError(f"git pull 실패: {pull.stderr.strip()}")
 
-    install = _install_requirements()
-    if install.returncode != 0:
-        _rollback_backend(local)
-        raise RuntimeError(f"패키지 설치 실패, {local[:7]}로 롤백함: {install.stderr.strip()}")
+    # pull은 이미 적용된 뒤라, 이 아래 어디서 실패하든(returncode 실패든, uv 자체가
+    # 없어서 파이썬이 FileNotFoundError를 던지는 경우든) 반드시 롤백해야 한다.
+    # 예전엔 returncode 체크만 해서, uv 실행파일 자체가 없을 때 발생하는
+    # FileNotFoundError가 그냥 위로 새어나가 롤백을 건너뛰고 "코드는 새 커밋인데
+    # 의존성/검증은 안 된" 상태로 남는 버그가 있었다 (로컬 시뮬레이션으로 재현 확인).
+    try:
+        install = _install_requirements()
+        if install.returncode != 0:
+            raise RuntimeError(f"패키지 설치 실패: {install.stderr.strip()}")
 
-    # "코드가 import되는지"뿐 아니라 "NAVDATA/항로DB CSV가 실제로 파싱되는지"까지 확인.
-    # NAVDATA.csv/Navblue_Route.csv도 git으로 같이 pull되는 대상이라, 형식이 깨진 CSV를
-    # push했을 때 이 체크 없이 재시작해버리면 store.load()가 매번 실패해서 서버가 영영
-    # 못 뜨는 무한 재시작 루프에 빠질 수 있다.
-    preflight = _run(
-        ["uv", "run", "python", "-c", "from app.data_loader import store; store.load()"],
-        BACKEND_DIR,
-    )
-    if preflight.returncode != 0:
+        # "코드가 import되는지"뿐 아니라 "NAVDATA/항로DB CSV가 실제로 파싱되는지"까지 확인.
+        # NAVDATA.csv/Navblue_Route.csv도 git으로 같이 pull되는 대상이라, 형식이 깨진
+        # CSV를 push했을 때 이 체크 없이 재시작해버리면 store.load()가 매번 실패해서
+        # 서버가 영영 못 뜨는 무한 재시작 루프에 빠질 수 있다.
+        preflight = _run(
+            ["uv", "run", "python", "-c", "from app.data_loader import store; store.load()"],
+            BACKEND_DIR,
+        )
+        if preflight.returncode != 0:
+            raise RuntimeError(f"새 코드/데이터 검증 실패: {preflight.stderr.strip()[-500:]}")
+    except Exception as e:
         _rollback_backend(local)
-        raise RuntimeError(f"새 코드/데이터 검증 실패, {local[:7]}로 롤백함: {preflight.stderr.strip()[-500:]}")
+        raise RuntimeError(f"{e} — {local[:7]}로 롤백함") from e
 
     return True
 
