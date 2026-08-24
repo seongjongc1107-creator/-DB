@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 title 항로 DB 업데이트
 setlocal enabledelayedexpansion
