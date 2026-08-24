@@ -7,3 +7,4 @@ sqlalchemy[asyncio]>=2.0.0
 aiosqlite>=0.20.0
 apscheduler>=3.11.0
 tzlocal>=5.4.0
+truststore>=0.9.1

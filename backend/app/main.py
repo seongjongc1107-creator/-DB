@@ -1,3 +1,12 @@
+import truststore
+
+# 다른 모든 import(특히 httpx를 쓰는 라우터들)보다 먼저 실행돼야 함 — 사내망처럼
+# 보안 프록시가 자체 인증서로 HTTPS를 가로채는 환경에서는, Windows 자체는 그
+# 인증서를 신뢰하도록 설정돼 있어도 파이썬의 기본 인증서 목록(certifi)엔 없어서
+# 외부 API 호출이 전부 CERTIFICATE_VERIFY_FAILED로 실패한다. truststore는 OS
+# 자체의 인증서 저장소(Windows/macOS/Linux)를 그대로 쓰게 해서 이 문제를 해결한다.
+truststore.inject_into_ssl()
+
 from contextlib import asynccontextmanager
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
