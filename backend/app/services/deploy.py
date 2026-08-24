@@ -100,10 +100,17 @@ def _update_backend_code_from_git() -> bool:
         _rollback_backend(local)
         raise RuntimeError(f"패키지 설치 실패, {local[:7]}로 롤백함: {install.stderr.strip()}")
 
-    preflight = _run(["uv", "run", "python", "-c", "from app.main import app"], BACKEND_DIR)
+    # "코드가 import되는지"뿐 아니라 "NAVDATA/항로DB CSV가 실제로 파싱되는지"까지 확인.
+    # NAVDATA.csv/Navblue_Route.csv도 git으로 같이 pull되는 대상이라, 형식이 깨진 CSV를
+    # push했을 때 이 체크 없이 재시작해버리면 store.load()가 매번 실패해서 서버가 영영
+    # 못 뜨는 무한 재시작 루프에 빠질 수 있다.
+    preflight = _run(
+        ["uv", "run", "python", "-c", "from app.data_loader import store; store.load()"],
+        BACKEND_DIR,
+    )
     if preflight.returncode != 0:
         _rollback_backend(local)
-        raise RuntimeError(f"새 코드 임포트 실패, {local[:7]}로 롤백함: {preflight.stderr.strip()[-500:]}")
+        raise RuntimeError(f"새 코드/데이터 검증 실패, {local[:7]}로 롤백함: {preflight.stderr.strip()[-500:]}")
 
     return True
 
