@@ -17,18 +17,34 @@ function Get-UvPath {
     return 'uv'
 }
 
-function Get-Port {
-    $envFile = Join-Path $BackendDir '.env'
-    if (Test-Path $envFile) {
-        $line = Get-Content $envFile | Where-Object { $_ -match '^PORT=' } | Select-Object -First 1
-        if ($line) { return ($line -split '=', 2)[1].Trim() }
-    }
-    return '8001'
-}
-
 function Write-Log($msg) {
     $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     Add-Content -Path $LogFile -Value "[$ts] $msg"
+}
+
+# 항로 DB 앱은 GYSJ와 달리 .env를 자동으로 읽어들이는 코드(pydantic-settings 등)가
+# 없고, os.environ만 직접 읽는다 — 그래서 uvicorn을 띄우기 전에 이 스크립트가 .env를
+# 직접 파싱해서 프로세스 환경변수로 넣어줘야 ADMIN_PASSWORD 등이 실제로 적용된다.
+# (안 하면 관리자 기능이 "환경변수가 설정되지 않았습니다"로 전부 500 에러남 — 실제로
+# 겪은 문제.)
+function Import-DotEnv($EnvFile) {
+    if (-not (Test-Path $EnvFile)) { return }
+    Get-Content $EnvFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -eq '' -or $line.StartsWith('#')) { return }
+        $idx = $line.IndexOf('=')
+        if ($idx -lt 1) { return }
+        $key = $line.Substring(0, $idx).Trim()
+        $val = $line.Substring($idx + 1).Trim()
+        [System.Environment]::SetEnvironmentVariable($key, $val, 'Process')
+    }
+}
+
+Import-DotEnv (Join-Path $BackendDir '.env')
+
+function Get-Port {
+    if ($env:PORT) { return $env:PORT }
+    return '8001'
 }
 
 $uv   = Get-UvPath
