@@ -68,26 +68,26 @@ function RerouteBlock({ options }: { options: ScenarioReroute[] }) {
   return (
     <div className="space-y-1.5">
       {options.map((r, i) => (
-        <div key={i} className="bg-amber-500/10 border border-amber-600/50 rounded-md px-2 py-1.5">
+        <div key={i} className="bg-amber-950 border border-amber-700 rounded-md px-2 py-1.5">
           <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-300">
             <Shuffle size={12} className="shrink-0" />
             추천 우회항로{options.length > 1 ? ` #${i + 1}` : ''}
-            <span className="ml-auto text-[10px] font-normal text-amber-200/70">
+            <span className="ml-auto text-[10px] font-normal text-amber-200">
               {r.count}회 사용 · 최근 {r.last_flown}
             </span>
           </div>
           <div className="flex items-center gap-1 flex-wrap mt-1">
-            <span className="text-[10px] text-gray-500">사용 항공사:</span>
+            <span className="text-[10px] text-gray-400">사용 항공사:</span>
             {r.airlines.map(al => (
-              <span key={al} className="text-[10px] font-mono font-semibold" style={{ color: airlineColor(al) }}>{al}</span>
+              <span key={al} className="text-[10px] font-mono font-semibold text-amber-100">{al}</span>
             ))}
           </div>
           <div className="text-[10px] mt-1">
             {r.navblue_number != null
               ? <span className="text-green-400">✓ NAVBLUE 항로 DB #{r.navblue_number}와 일치</span>
-              : <span className="text-gray-500">NAVBLUE 항로 DB엔 미등록 — 과거 제출 실적만 있음</span>}
+              : <span className="text-gray-400">NAVBLUE 항로 DB엔 미등록 — 과거 제출 실적만 있음</span>}
           </div>
-          <div className="text-[10px] font-mono break-all text-amber-100/90 mt-1">{r.route}</div>
+          <div className="text-[10px] font-mono break-all text-amber-50 mt-1">{r.route}</div>
         </div>
       ))}
     </div>
