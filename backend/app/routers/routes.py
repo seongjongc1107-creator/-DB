@@ -123,11 +123,16 @@ def parse_route_string(route: str = Query(..., description="공백으로 구분�
     }
 
 
+def _domestic_first(code: str):
+    # 국내(RK로 시작하는 ICAO) 공항을 목록 맨 앞으로 — 나머지는 그대로 알파벳순
+    return (0 if code.startswith("RK") else 1, code)
+
+
 @router.get("/origins")
 def list_origins():
-    return sorted(store.route_by_origin.keys())
+    return sorted(store.route_by_origin.keys(), key=_domestic_first)
 
 
 @router.get("/destinations")
 def list_destinations():
-    return sorted(store.route_by_dest.keys())
+    return sorted(store.route_by_dest.keys(), key=_domestic_first)

@@ -211,10 +211,13 @@ export default function RoutePanel() {
   const [routeTooltip, setRouteTooltip] = useState<{ x: number; y: number; text: string } | null>(null)
   const affectedIdSet = useMemo(() => new Set(state.affectedRouteIds), [state.affectedRouteIds])
   // 공간 필터(태풍 등)에 걸리는 항로를 최상단으로 — 목록 자체는 그대로 유지해서
-  // 영향 없는 항로도 선택해서 실제로 안전한지 지도에서 확인할 수 있게 함
+  // 영향 없는 항로도 선택해서 실제로 안전한지 지도에서 확인할 수 있게 함.
+  // disabled 항로는 그 위에서 항상 맨 아래로 밀어냄(더 이상 안 쓰는 항로라 우선순위 최하)
   const sortedRoutes = useMemo(() => {
-    if (affectedIdSet.size === 0) return state.allRoutes
+    const hasDisabled = state.allRoutes.some(r => r.disabled)
+    if (affectedIdSet.size === 0 && !hasDisabled) return state.allRoutes
     return [...state.allRoutes].sort((a, b) => {
+      if (a.disabled !== b.disabled) return a.disabled ? 1 : -1
       const aAff = affectedIdSet.has(a.id) ? 0 : 1
       const bAff = affectedIdSet.has(b.id) ? 0 : 1
       return aAff - bAff
@@ -388,6 +391,7 @@ export default function RoutePanel() {
                 const selIdx = state.selectedRouteIds.indexOf(r.id)
                 const isSelected = selIdx !== -1
                 const isAffected = affectedIdSet.has(r.id)
+                const isDisabled = r.disabled
                 const color = selIdx !== -1 ? SELECT_COLORS[selIdx % SELECT_COLORS.length] : undefined
                 return (
                   <button
@@ -395,9 +399,11 @@ export default function RoutePanel() {
                     className={`w-full text-left px-2.5 py-2 rounded-md text-xs transition-colors border ${
                       isSelected
                         ? 'text-white'
-                        : isAffected
-                          ? 'bg-orange-950/30 hover:bg-orange-950/50 border-orange-800/60 text-gray-300 hover:text-white'
-                          : 'bg-gray-800 hover:bg-gray-750 border-transparent text-gray-300 hover:text-white'
+                        : isDisabled
+                          ? 'bg-gray-900/50 hover:bg-gray-900/70 border-transparent text-gray-600 hover:text-gray-400'
+                          : isAffected
+                            ? 'bg-orange-950/30 hover:bg-orange-950/50 border-orange-800/60 text-gray-300 hover:text-white'
+                            : 'bg-gray-800 hover:bg-gray-750 border-transparent text-gray-300 hover:text-white'
                     }`}
                     style={isSelected ? { backgroundColor: color + '26', borderColor: color } : undefined}
                     onClick={e => selectRoute(r.id, e.ctrlKey || e.metaKey)}
@@ -420,17 +426,22 @@ export default function RoutePanel() {
                           {selIdx + 1}
                         </span>
                       )}
-                      <div className="font-semibold text-white">
+                      <div className={`font-semibold ${isDisabled && !isSelected ? 'text-gray-500' : 'text-white'}`}>
                         {r.origin} → {r.destination}
                         <span className="ml-1 text-gray-500 font-normal">#{r.number}</span>
                       </div>
+                      {isDisabled && (
+                        <span className="text-[9px] font-semibold text-gray-500 shrink-0 bg-gray-800 px-1 py-0.5 rounded">
+                          비활성
+                        </span>
+                      )}
                       {isAffected && (
                         <span className="flex items-center gap-0.5 text-[9px] font-semibold text-orange-400 shrink-0">
                           <AlertTriangle size={9} /> 영향
                         </span>
                       )}
                     </div>
-                    <div className="text-gray-400 truncate mt-0.5">{r.route}</div>
+                    <div className={`truncate mt-0.5 ${isDisabled && !isSelected ? 'text-gray-600' : 'text-gray-400'}`}>{r.route}</div>
                     <div className="text-gray-500 mt-0.5">{r.distance} NM</div>
                   </button>
                 )
