@@ -964,7 +964,6 @@ async def scenario_status(task_id: str):
 # 우회 waypoint는 보통 FIR 경계 지점이라, 후보를 FIR 경계 근접 여부로 정렬은 함
 # (숨기지는 않음 — 경계가 아닌 것도 아래에 그대로 다 보임).
 
-_FIR_BOUNDARY_TOL_KM = 20  # VATSIM FIR 데이터가 실제 ATS 경계의 근사치라 약간 여유를 둠
 
 
 def _point_seg_dist_km(plon: float, plat: float, alon: float, alat: float, blon: float, blat: float) -> float:
@@ -983,19 +982,25 @@ def _point_seg_dist_km(plon: float, plat: float, alon: float, alat: float, blon:
     return math.hypot(px - cx, py - cy)
 
 
-# VATSIM FIR 데이터는 각국 ACC(관제권역) 세분화 경계까지 별개 폴리곤으로 들어있어서
-# (예: 중국은 상하이 FIR 하나가 Nanchang/Hefei/Xiamen ACC 등 내부 경계로 또 쪼개짐)
-# 전세계 427개를 다 대상으로 하면 "그 나라 관제권 내부 경계"에 우연히 가깝다는
-# 이유만으로 엉뚱한 fix가 "경계"로 잘못 분류됨(예: ELNEX가 상하이 FIR 내부의
-# Nanchang ACC 경계에 9.9km — 실제로는 인천FIR과 무관). 이 기능은 인천FIR
-# 우회입항 맥락이라 인천FIR(RKRR) 경계 하나만 기준으로 삼음.
-_TARGET_FIR_ICAO = "RKRR"
+# 예전엔 인천FIR(RKRR) 하나로 하드코딩했었는데, 이 기능이 인천행 외에 다른 구간
+# (예: VVDN발 BUNTA — 베트남/중국 경계) 조회에도 쓰이면서 안 맞게 됨. 지금은 "이
+# 제약 waypoint 자체가 어느 나라 FIR 경계에 붙어있는지"를 먼저 찾아서 그 나라
+# 기준으로 후보를 판정함 — BUNTA면 베트남(VV) 쪽 경계에 있는 후보를 찾아주는 식.
+# 나라 단위 그룹은 ICAO 앞 2글자로 묶음 — 중국처럼 한 나라가 여러 FIR로 쪼개진
+# 경우(ZG/ZH/ZS 등)에도 그 나라 소속 FIR이면 전부 같은 그룹으로 묶여서, 그
+# 나라를 "빠져나가는" 경계 지점이면 상대편이 어느 나라건 다 잡힘(요청사항:
+# 베트남-중국 경계로 한정하지 않고 베트남 쪽 경계면 충분).
+def _fir_group(icao: str) -> str:
+    return icao[:2]
 
 
-def _min_dist_to_fir_boundary_km(lon: float, lat: float) -> float:
-    best = float("inf")
+def _nearest_fir_group(lon: float, lat: float) -> Optional[str]:
+    """가장 가까운 FIR을 찾아 그 소속 나라(2글자 그룹)를 반환."""
+    best_dist = float("inf")
+    best_group: Optional[str] = None
     for feat in _FIR_DATA.get("features", []):
-        if feat.get("properties", {}).get("icao") != _TARGET_FIR_ICAO:
+        icao = feat.get("properties", {}).get("icao")
+        if not icao:
             continue
         geom = feat.get("geometry") or {}
         gtype = geom.get("type")
@@ -1008,9 +1013,140 @@ def _min_dist_to_fir_boundary_km(lon: float, lat: float) -> float:
             for ring in poly:
                 for i in range(len(ring) - 1):
                     d = _point_seg_dist_km(lon, lat, ring[i][0], ring[i][1], ring[i + 1][0], ring[i + 1][1])
-                    if d < best:
-                        best = d
-    return best
+                    if d < best_dist:
+                        best_dist = d
+                        best_group = _fir_group(icao)
+    return best_group
+
+
+def _point_dist_km(alon: float, alat: float, blon: float, blat: float) -> float:
+    lat0 = math.radians((alat + blat) / 2)
+    kx, ky = 111.32 * math.cos(lat0), 110.57
+    return math.hypot((blon - alon) * kx, (blat - alat) * ky)
+
+
+# 거리 임계치로 "경계 근처인가"를 추측하는 대신, 실제 이탈 항로의 좌표 경로를
+# 항공로까지 다 풀어서(store.resolve_route_tokens) 그 나라 공역을 진짜로
+# 벗어나는 지점을 직접 찾음 — 그러면 그 지점에 제일 가까운 이름 붙은 fix가
+# 자동으로 골라짐(NAKHA/TEBAK처럼 둘 다 국경 근처인 경우 더 정밀한 쪽이 이김,
+# VIDEN/PHULU 같은 출발 SID fix는애초에 실제 통과 지점 근처가 아니라서 안 잡힘).
+# canonicalize_route가 "NAKHA R474 TEBAK R474 WUY"를 "NAKHA R474 WUY"로
+# 합쳐버려도 resolve_route_tokens은 R474 항공로 전체를 다시 펼치므로 TEBAK이
+# 좌표까지 그대로 복원됨 — 문자열 레벨에서 사라진 것과 무관하게 동작함.
+def _point_in_ring(lon: float, lat: float, ring: list) -> bool:
+    inside = False
+    n = len(ring)
+    j = n - 1
+    for i in range(n):
+        xi, yi = ring[i][0], ring[i][1]
+        xj, yj = ring[j][0], ring[j][1]
+        if (yi > lat) != (yj > lat):
+            x_at_lat = (xj - xi) * (lat - yi) / (yj - yi) + xi
+            if lon < x_at_lat:
+                inside = not inside
+        j = i
+    return inside
+
+
+def _point_in_fir_group(lon: float, lat: float, group: str) -> bool:
+    for feat in _FIR_DATA.get("features", []):
+        icao = feat.get("properties", {}).get("icao") or ""
+        if _fir_group(icao) != group:
+            continue
+        geom = feat.get("geometry") or {}
+        gtype = geom.get("type")
+        polys = geom.get("coordinates") or []
+        if gtype == "Polygon":
+            polys = [polys]
+        elif gtype != "MultiPolygon":
+            continue
+        for poly in polys:
+            if not poly:
+                continue
+            if _point_in_ring(lon, lat, poly[0]) and not any(
+                _point_in_ring(lon, lat, hole) for hole in poly[1:]
+            ):
+                return True
+    return False
+
+
+def _segment_intersection(
+    ax: float, ay: float, bx: float, by: float,
+    cx: float, cy: float, dx: float, dy: float,
+) -> Optional[tuple[float, float]]:
+    """두 선분(a-b, c-d)의 교차점. 평행/비교차면 None."""
+    denom = (ax - bx) * (cy - dy) - (ay - by) * (cx - dx)
+    if abs(denom) < 1e-12:
+        return None
+    t = ((ax - cx) * (cy - dy) - (ay - cy) * (cx - dx)) / denom
+    u = ((ax - cx) * (ay - by) - (ay - cy) * (ax - bx)) / denom
+    if 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0:
+        return (ax + t * (bx - ax), ay + t * (by - ay))
+    return None
+
+
+def _group_boundary_crossing(
+    ax: float, ay: float, bx: float, by: float, group: str,
+) -> Optional[tuple[float, float]]:
+    """세그먼트(a->b)가 group 소속 FIR 경계선과 실제로 만나는 첫 교차점을 반환."""
+    for feat in _FIR_DATA.get("features", []):
+        icao = feat.get("properties", {}).get("icao") or ""
+        if _fir_group(icao) != group:
+            continue
+        geom = feat.get("geometry") or {}
+        gtype = geom.get("type")
+        polys = geom.get("coordinates") or []
+        if gtype == "Polygon":
+            polys = [polys]
+        elif gtype != "MultiPolygon":
+            continue
+        for poly in polys:
+            for ring in poly:
+                for i in range(len(ring) - 1):
+                    pt = _segment_intersection(
+                        ax, ay, bx, by, ring[i][0], ring[i][1], ring[i + 1][0], ring[i + 1][1],
+                    )
+                    if pt is not None:
+                        return pt
+    return None
+
+
+def _find_crossing_fix(
+    path: list,
+    passed_fixes: dict,
+    home_group: str,
+) -> Optional[tuple[str, float]]:
+    """path(좌표 시퀀스)를 따라가며 home_group 공역을 처음 벗어나는 구간을 찾고,
+    그 구간이 실제 경계선과 만나는 정확한 지점(선분 교차)에 제일 가까운 이름
+    붙은 fix와 그 거리(km)를 반환. 못 찾으면 None.
+    (구간의 끝점을 그냥 "경계"로 쓰면, 그 끝점이 우연히 어느 fix와 좌표가 같다는
+    이유만으로 실제로는 더 가까운 다른 fix를 제치고 잘못 뽑히는 문제가 있었음 —
+    실측: TEBAK이 실제 경계선에서 3km인데, 구간 끝점과 좌표가 정확히 같다는
+    이유만으로 25km 떨어진 LON이 대신 뽑힌 사례.)
+    """
+    if len(path) < 2:
+        return None
+    was_inside = _point_in_fir_group(path[0][0], path[0][1], home_group)
+    crossing = None
+    for i in range(1, len(path)):
+        now_inside = _point_in_fir_group(path[i][0], path[i][1], home_group)
+        if was_inside and not now_inside:
+            a, b = path[i - 1], path[i]
+            crossing = _group_boundary_crossing(a[0], a[1], b[0], b[1], home_group) or (b[0], b[1])
+            break
+        was_inside = now_inside
+    if crossing is None:
+        return None
+    best_fix, best_dist = None, float("inf")
+    for name, coord in passed_fixes.items():
+        if not coord:
+            continue
+        d = _point_dist_km(coord[0], coord[1], crossing[0], crossing[1])
+        if d < best_dist:
+            best_dist, best_fix = d, name
+    if best_fix is None:
+        return None
+    return best_fix, round(best_dist, 1)
 
 
 def _fix_coord(name: str) -> Optional[tuple[float, float]]:
@@ -1059,23 +1195,33 @@ async def infer_diversion(
         route_dep, route_arr = canon_tokens[0], canon_tokens[-1]
         by_od[(route_dep, route_arr)][canon].append(r)
 
-    fix_set_cache: dict[str, set[str]] = {}
+    resolve_cache: dict[str, tuple[list, dict]] = {}
 
-    def route_fix_set(route: str) -> set[str]:
-        if route not in fix_set_cache:
+    def resolve_route(route: str) -> tuple[list, dict]:
+        if route not in resolve_cache:
             tokens = route.split()
             try:
-                _, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
+                raw, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
             except Exception:
-                fix_set_cache[route] = set(tokens)
-            else:
-                fix_set_cache[route] = set(passed_fixes) | set(tokens)
-        return fix_set_cache[route]
+                raw, passed_fixes = [], {}
+            resolve_cache[route] = (raw, passed_fixes)
+        return resolve_cache[route]
+
+    def route_fix_set(route: str) -> set[str]:
+        _, passed_fixes = resolve_route(route)
+        return set(passed_fixes) | set(route.split())
+
+    # 국경 판정 기준 나라 — 제약 waypoint(wp) 자신이 어느 FIR에 붙어있는지로 정함
+    # (예: BUNTA면 베트남(VV) — 인천행 외 다른 구간 조회에도 맞게 하드코딩 대신 동적으로).
+    wp_coord = _fix_coord(wp)
+    target_group = _nearest_fir_group(wp_coord[0], wp_coord[1]) if wp_coord else None
 
     candidate_counter: dict[str, int] = defaultdict(int)  # 실제 편수 — 화면 표시용, 컷 없이 그대로
     candidate_weight: dict[str, float] = defaultdict(float)  # 정렬용 가중치(겹침율 반영) — 아래 참고
     candidate_examples: dict[str, list[dict]] = defaultdict(list)
     candidate_airlines: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))  # 후보 전체 기준(예시 5개 제한 없이) 항공사별 건수
+    precise_boundary_fixes: set[str] = set()  # 실제 경로가 국경을 넘는 지점에 제일 가까웠던 fix들
+    crossing_dist_by_fix: dict[str, float] = {}
 
     for (od_dep, od_arr), canon_groups in by_od.items():
         # 정상 항로 = 이 OD에서 제일 많이 쓴 canonical 항로
@@ -1111,6 +1257,20 @@ async def infer_diversion(
             # 항공로명/DCT는 빼고 실제 fix만 후보로
             detour_fixes = [t for t in detour if t not in store.airway_names and t != "DCT"]
 
+            # 이 이탈 항로가 실제로 국경을 넘는 지점을 좌표로 직접 찾음 — canonicalize가
+            # 문자열에서 지워버린 fix(예: TEBAK)라도 항공로를 다시 펼치면 복원되므로
+            # detour_fixes에 없어도 여기서 후보로 추가될 수 있음.
+            crossing_fix_info = None
+            if target_group:
+                raw_path, passed_fixes_coords = resolve_route(other_canon)
+                crossing_fix_info = _find_crossing_fix(raw_path, passed_fixes_coords, target_group)
+            if crossing_fix_info:
+                crossing_fix, crossing_dist = crossing_fix_info
+                precise_boundary_fixes.add(crossing_fix)
+                crossing_dist_by_fix[crossing_fix] = min(crossing_dist, crossing_dist_by_fix.get(crossing_fix, crossing_dist))
+                if crossing_fix not in detour_fixes:
+                    detour_fixes = detour_fixes + [crossing_fix]
+
             # 이 이탈 항로를 실제로 낸 편들 — "어느 항공사가 언제 어느 구간에서
             # 탔는지"가 없으면 후보 fix가 왜 나왔는지 검증할 방법이 없어서 추가함
             example_airlines: dict[str, int] = defaultdict(int)
@@ -1135,18 +1295,12 @@ async def infer_diversion(
                         "flights": sample_flights,
                     })
 
-    # 실제 우회 waypoint는 보통 FIR 경계 지점이라, 경계에 가까운 후보를 우선
-    # 보여줌 — 숨기는 게 아니라 정렬만 바꾸는 것, 경계 아닌 것도 그대로 다 나옴
-    boundary_dist: dict[str, Optional[float]] = {}
-    for f in candidate_counter:
-        coord = _fix_coord(f)
-        boundary_dist[f] = round(_min_dist_to_fir_boundary_km(coord[0], coord[1]), 1) if coord else None
-
-    def is_boundary(f: str) -> bool:
-        d = boundary_dist[f]
-        return d is not None and d <= _FIR_BOUNDARY_TOL_KM
-
-    ranked = sorted(candidate_counter.items(), key=lambda kv: (not is_boundary(kv[0]), -candidate_weight[kv[0]]))
+    # precise_boundary_fixes = 위 루프에서 실제 경로 좌표로 국경 통과 지점을 찾아
+    # 그 지점에 제일 가까웠던 fix들 — 이것만 초록색으로 표시(숨기지는 않음, 정렬만).
+    ranked = sorted(
+        candidate_counter.items(),
+        key=lambda kv: (kv[0] not in precise_boundary_fixes, -candidate_weight[kv[0]]),
+    )
     return {
         "waypoint": wp,
         "dep": dep or None,
@@ -1154,7 +1308,8 @@ async def infer_diversion(
         "candidates": [
             {
                 "waypoint": f, "count": c, "examples": candidate_examples[f],
-                "fir_boundary": is_boundary(f), "boundary_dist_km": boundary_dist[f],
+                "fir_boundary": f in precise_boundary_fixes,
+                "boundary_dist_km": crossing_dist_by_fix.get(f),
                 "airlines": [
                     {"code": al, "count": ac}
                     for al, ac in sorted(candidate_airlines[f].items(), key=lambda kv: -kv[1])
