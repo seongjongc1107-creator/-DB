@@ -45,7 +45,7 @@ export default function Sidebar() {
           <span className="text-gray-600">{typhoonOpen ? '▲' : '▼'}</span>
         </button>
         {typhoonOpen && (
-          <div className="mt-3">
+          <div className="mt-3 max-h-80 overflow-y-auto">
             <TyphoonPanel />
           </div>
         )}
