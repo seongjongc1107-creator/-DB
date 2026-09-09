@@ -546,7 +546,7 @@ class NavDataStore:
     def _load_routes(self) -> None:
         with open(ROUTES_CSV, encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
-            for i, row in enumerate(reader):
+            for row in reader:
                 origin = (row.get('Origin') or '').strip()
                 dest = (row.get('Destination') or '').strip()
                 route_str = (row.get('Route') or '').strip()
@@ -558,8 +558,14 @@ class NavDataStore:
                     dist = int(float(row.get('Distance') or 0))
                 except (ValueError, TypeError):
                     dist = 0
+                # id는 self.routes에서 실제로 저장되는 위치와 항상 같아야 함 —
+                # get_routes()가 route_by_origin/dest에 쌓인 id를 self.routes[id]로
+                # 바로 인덱싱해서 꺼내 쓰기 때문. CSV 원본 행 번호(enumerate)를 그대로
+                # 쓰면 위에서 skip된 행(Disabled=Yes 등)이 하나라도 있는 순간부터
+                # id가 실제 저장 위치보다 앞서 나가서 완전히 엉뚱한 항로가 튀어나옴 —
+                # 이전 사이클 데이터엔 Disabled=Yes 행이 아예 없어서 안 드러났던 버그.
                 self.routes.append(Route(
-                    id=i,
+                    id=len(self.routes),
                     origin=origin,
                     destination=dest,
                     number=int(row.get('Number') or 1),
