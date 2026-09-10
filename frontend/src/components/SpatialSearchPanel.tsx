@@ -112,8 +112,7 @@ export default function SpatialSearchPanel() {
   const [radiusUnit, setRadiusUnit] = useState<'nm' | 'km'>('nm')
   const [polyText, setPolyText] = useState('')
   const [polyError, setPolyError] = useState('')
-  const [circleLat, setCircleLat] = useState('')
-  const [circleLon, setCircleLon] = useState('')
+  const [circleCoordText, setCircleCoordText] = useState('')
   const [circleError, setCircleError] = useState('')
 
   const isDrawing = state.spatialMode !== null          // map is in active draw mode
@@ -176,16 +175,27 @@ export default function SpatialSearchPanel() {
   }
 
   // ── Circle from text ────────────────────────────────────────────
+  // 폴리곤 좌표 입력과 동일한 규칙: 십진수/DMS 아무 형식이나 인식. 압축 DMS
+  // (공백 없이 붙은 형태)는 extractDmsPairs로, 그 외(십진수, 구분자 있는 DMS)는
+  // parseLatLon으로 — 폴리곤의 "한 번에 인식 시도 후 실패하면 대체" 순서와 동일.
+  function parseCircleCenter(raw: string): [number, number] | null {
+    const dms = extractDmsPairs(raw)
+    if (dms.length === 1) return dms[0]
+    return parseLatLon(raw)
+  }
+
   function applyCircleText() {
-    const lat = parseFloat(circleLat)
-    const lon = parseFloat(circleLon)
+    const center = parseCircleCenter(circleCoordText)
     const value = parseFloat(radiusValue)
-    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    if (!center) {
+      setCircleError('좌표 형식을 확인하세요. 예: 37.5167, 126.9000 또는 192000N 1232600E'); return
+    }
+    const [lon, lat] = center
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       setCircleError('위도(-90~90), 경도(-180~180)를 확인하세요.'); return
     }
     if (!value || value <= 0) { setCircleError(`반경(${radiusUnit.toUpperCase()})을 입력하세요.`); return }
     setCircleError('')
-    const center: [number, number] = [lon, lat]
     const circle = turf.circle(center, value, { steps: 64, units: radiusUnit === 'km' ? 'kilometers' : 'nauticalmiles' })
     const ring = circle.geometry.coordinates[0] as number[][]
     dispatch({ type: 'SET_SPATIAL_FILTER', payload: { type: 'circle', ring, center, radiusNm: value, radiusUnit } })
@@ -388,24 +398,17 @@ export default function SpatialSearchPanel() {
           {/* ── Circle / Text ── */}
           {shapeType === 'circle' && method === 'text' && (
             <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[11px] text-gray-500 mb-1 block">위도 (N)</label>
-                  <input
-                    type="number" placeholder="37.5167" value={circleLat}
-                    onChange={e => { setCircleLat(e.target.value); setCircleError('') }}
-                    className="w-full bg-gray-800 border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] text-gray-500 mb-1 block">경도 (E)</label>
-                  <input
-                    type="number" placeholder="126.9000" value={circleLon}
-                    onChange={e => { setCircleLon(e.target.value); setCircleError('') }}
-                    className="w-full bg-gray-800 border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none focus:border-purple-500"
-                  />
-                </div>
-              </div>
+              <p className="text-[11px] text-gray-500">
+                십진수(위도, 경도) 또는 항공용 DMS 아무 형식이나 입력 가능 — 공백 없이
+                붙어있는 형식(N360100E1211600)도 자동 인식
+              </p>
+              <input
+                type="text"
+                placeholder="37.5167, 126.9000  또는  192000N 1232600E"
+                value={circleCoordText}
+                onChange={e => { setCircleCoordText(e.target.value); setCircleError('') }}
+                className="w-full bg-gray-800 border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none font-mono placeholder-gray-600 focus:border-purple-500"
+              />
               <RadiusInput value={radiusValue} onChange={setRadiusValue} unit={radiusUnit} onUnitChange={setRadiusUnit} />
               {circleError && <p className="text-xs text-red-400">{circleError}</p>}
               <button
