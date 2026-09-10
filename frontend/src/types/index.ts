@@ -527,7 +527,9 @@ export interface SpatialFilter {
   /** turf-compatible closed polygon ring [[lon,lat],...,[lon,lat]] */
   ring: number[][]
   center?: [number, number]
+  /** radiusUnit이 'km'이면 이 값은 km, 아니면(기본) NM — 필드명은 하위 호환(TyphoonPanel)을 위해 유지 */
   radiusNm?: number
+  radiusUnit?: 'nm' | 'km'
 }
 
 export interface Typhoon {

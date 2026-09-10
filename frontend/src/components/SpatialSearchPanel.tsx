@@ -108,7 +108,8 @@ export default function SpatialSearchPanel() {
   // Local UI state — shape type and input method are just UI choices until explicitly activated
   const [shapeType, setShapeType] = useState<ShapeType>(null)
   const [method, setMethod] = useState<InputMethod>('draw')
-  const [radiusNm, setRadiusNm] = useState('50')
+  const [radiusValue, setRadiusValue] = useState('50')
+  const [radiusUnit, setRadiusUnit] = useState<'nm' | 'km'>('nm')
   const [polyText, setPolyText] = useState('')
   const [polyError, setPolyError] = useState('')
   const [circleLat, setCircleLat] = useState('')
@@ -167,27 +168,27 @@ export default function SpatialSearchPanel() {
   function applyCircleDraw() {
     const center = state.spatialPoints[0]
     if (!center) return
-    const nm = parseFloat(radiusNm)
-    if (!nm || nm <= 0) return
-    const circle = turf.circle(center, nm, { steps: 64, units: 'nauticalmiles' })
+    const value = parseFloat(radiusValue)
+    if (!value || value <= 0) return
+    const circle = turf.circle(center, value, { steps: 64, units: radiusUnit === 'km' ? 'kilometers' : 'nauticalmiles' })
     const ring = circle.geometry.coordinates[0] as number[][]
-    dispatch({ type: 'SET_SPATIAL_FILTER', payload: { type: 'circle', ring, center, radiusNm: nm } })
+    dispatch({ type: 'SET_SPATIAL_FILTER', payload: { type: 'circle', ring, center, radiusNm: value, radiusUnit } })
   }
 
   // ── Circle from text ────────────────────────────────────────────
   function applyCircleText() {
     const lat = parseFloat(circleLat)
     const lon = parseFloat(circleLon)
-    const nm = parseFloat(radiusNm)
+    const value = parseFloat(radiusValue)
     if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       setCircleError('위도(-90~90), 경도(-180~180)를 확인하세요.'); return
     }
-    if (!nm || nm <= 0) { setCircleError('반경(NM)을 입력하세요.'); return }
+    if (!value || value <= 0) { setCircleError(`반경(${radiusUnit.toUpperCase()})을 입력하세요.`); return }
     setCircleError('')
     const center: [number, number] = [lon, lat]
-    const circle = turf.circle(center, nm, { steps: 64, units: 'nauticalmiles' })
+    const circle = turf.circle(center, value, { steps: 64, units: radiusUnit === 'km' ? 'kilometers' : 'nauticalmiles' })
     const ring = circle.geometry.coordinates[0] as number[][]
-    dispatch({ type: 'SET_SPATIAL_FILTER', payload: { type: 'circle', ring, center, radiusNm: nm } })
+    dispatch({ type: 'SET_SPATIAL_FILTER', payload: { type: 'circle', ring, center, radiusNm: value, radiusUnit } })
     flyToRing(ring)
   }
 
@@ -218,7 +219,7 @@ export default function SpatialSearchPanel() {
         <div className="flex items-center justify-between">
           <span className="text-xs text-purple-300 font-semibold">
             {state.spatialFilter!.type === 'circle'
-              ? `반경 ${state.spatialFilter!.radiusNm} NM`
+              ? `반경 ${state.spatialFilter!.radiusNm} ${(state.spatialFilter!.radiusUnit ?? 'nm').toUpperCase()}`
               : '폴리곤 영역'} 적용 중
           </span>
           <button onClick={clear} className="text-gray-500 hover:text-red-400 transition-colors">
@@ -366,7 +367,7 @@ export default function SpatialSearchPanel() {
                   <div className="text-xs text-gray-400 font-mono">
                     {centerPt[1].toFixed(4)}°N, {centerPt[0].toFixed(4)}°E
                   </div>
-                  <RadiusInput value={radiusNm} onChange={setRadiusNm} />
+                  <RadiusInput value={radiusValue} onChange={setRadiusValue} unit={radiusUnit} onUnitChange={setRadiusUnit} />
                   <button
                     onClick={applyCircleDraw}
                     className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs font-medium transition-colors"
@@ -405,7 +406,7 @@ export default function SpatialSearchPanel() {
                   />
                 </div>
               </div>
-              <RadiusInput value={radiusNm} onChange={setRadiusNm} />
+              <RadiusInput value={radiusValue} onChange={setRadiusValue} unit={radiusUnit} onUnitChange={setRadiusUnit} />
               {circleError && <p className="text-xs text-red-400">{circleError}</p>}
               <button
                 onClick={applyCircleText}
@@ -421,7 +422,14 @@ export default function SpatialSearchPanel() {
   )
 }
 
-function RadiusInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function RadiusInput({
+  value, onChange, unit, onUnitChange,
+}: {
+  value: string
+  onChange: (v: string) => void
+  unit: 'nm' | 'km'
+  onUnitChange: (u: 'nm' | 'km') => void
+}) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-gray-400 shrink-0">반경</span>
@@ -430,7 +438,20 @@ function RadiusInput({ value, onChange }: { value: string; onChange: (v: string)
         onChange={e => onChange(e.target.value)}
         className="flex-1 w-0 bg-gray-800 border border-gray-600 text-white text-xs rounded px-2 py-1 outline-none focus:border-purple-500"
       />
-      <span className="text-xs text-gray-400 shrink-0">NM</span>
+      <div className="flex bg-gray-800 border border-gray-600 rounded overflow-hidden shrink-0">
+        {(['nm', 'km'] as const).map(u => (
+          <button
+            key={u}
+            type="button"
+            onClick={() => onUnitChange(u)}
+            className={`px-2 py-1 text-xs font-medium transition-colors ${
+              unit === u ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            {u.toUpperCase()}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
