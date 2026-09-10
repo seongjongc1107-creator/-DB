@@ -55,6 +55,31 @@ def search(q: str = Query(..., min_length=1)):
                 "description": description,
             })
 
+    # FIR/UIR (ICAO 코드 접두어 또는 이름 부분일치) — "이 공역을 지나는 항로"를
+    # airway/waypoint와 같은 방식으로 보여주기 위함. route_count 계산(폴리곤
+    # point-in-polygon)이 FIR당 한 번은 비용이 있어(이후엔 캐시) 매치를 넉넉히
+    # 잡지 않고 소수만 계산함.
+    fir_matches = sorted(
+        [
+            icao for icao, feat in store.fir_by_icao.items()
+            if icao.startswith(q_up) or q_up in (feat.get("properties", {}).get("name") or "").upper()
+        ],
+        key=lambda x: (x != q_up, x),
+    )
+    for icao in fir_matches[:10]:
+        feat = store.fir_by_icao[icao]
+        name = (feat.get("properties", {}) or {}).get("name") or ""
+        min_lon, min_lat, max_lon, max_lat = store.fir_bbox_by_icao[icao]
+        route_count = len(store.get_routes_by_fir(icao))
+        results.append({
+            "type": "fir",
+            "id": icao,
+            "name": f"{icao} {name}".strip(),
+            "lat": (min_lat + max_lat) / 2,
+            "lon": (min_lon + max_lon) / 2,
+            "description": f"FIR/UIR · {route_count} routes passing through",
+        })
+
     # Waypoints/Navaids (prefix match, cap at 15) — fix_lookup은 waypoint(5글자
     # RNAV 지점)뿐 아니라 NDB/VOR 같은 3글자 navaid, airway에 내장된 중간 fix,
     # 절차 종점까지 다 포함하는 전체 인덱스라 여기서 찾아야 항로 리졸버가 실제로

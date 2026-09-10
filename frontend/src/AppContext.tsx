@@ -10,6 +10,7 @@ const initialState: AppState = {
   affectedRouteIds: [],
   activeAirway: null,
   activeWaypoint: null,
+  activeFir: null,
   allRoutes: [],
   routeGeoJSON: null,
   airportsGeoJSON: null,
@@ -113,6 +114,15 @@ function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         activeWaypoint: action.payload,
+        layers: {
+          ...state.layers,
+          matchedRoutes: action.payload !== null ? true : state.layers.matchedRoutes,
+        },
+      }
+    case 'SET_ACTIVE_FIR':
+      return {
+        ...state,
+        activeFir: action.payload,
         layers: {
           ...state.layers,
           matchedRoutes: action.payload !== null ? true : state.layers.matchedRoutes,

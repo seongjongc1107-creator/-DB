@@ -17,7 +17,6 @@ from ..country_codes import airports_in_country, available_countries
 from ..data_loader import store, _gc_km
 from ..fpl_db import FplSessionLocal, make_fpl_upsert
 from ..fpl_models import FplArchive, FplCollectionRun
-from .navdata import _FIR_DATA
 
 router = APIRouter()
 
@@ -998,7 +997,7 @@ def _nearest_fir_group(lon: float, lat: float) -> Optional[str]:
     """가장 가까운 FIR을 찾아 그 소속 나라(2글자 그룹)를 반환."""
     best_dist = float("inf")
     best_group: Optional[str] = None
-    for feat in _FIR_DATA.get("features", []):
+    for feat in store.fir_data.get("features", []):
         icao = feat.get("properties", {}).get("icao")
         if not icao:
             continue
@@ -1049,7 +1048,7 @@ def _point_in_ring(lon: float, lat: float, ring: list) -> bool:
 
 
 def _point_in_fir_group(lon: float, lat: float, group: str) -> bool:
-    for feat in _FIR_DATA.get("features", []):
+    for feat in store.fir_data.get("features", []):
         icao = feat.get("properties", {}).get("icao") or ""
         if _fir_group(icao) != group:
             continue
@@ -1089,7 +1088,7 @@ def _group_boundary_crossing(
     ax: float, ay: float, bx: float, by: float, group: str,
 ) -> Optional[tuple[float, float]]:
     """세그먼트(a->b)가 group 소속 FIR 경계선과 실제로 만나는 첫 교차점을 반환."""
-    for feat in _FIR_DATA.get("features", []):
+    for feat in store.fir_data.get("features", []):
         icao = feat.get("properties", {}).get("icao") or ""
         if _fir_group(icao) != group:
             continue

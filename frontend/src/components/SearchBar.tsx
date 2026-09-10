@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, X, Route, Building2, MapPin } from 'lucide-react'
+import { Search, X, Route, Building2, MapPin, Globe2 } from 'lucide-react'
 import * as turf from '@turf/turf'
 import { api } from '../api/client'
 import { useApp } from '../AppContext'
@@ -9,6 +9,7 @@ const TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: s
   airway:  { label: 'AWY', icon: <Route size={10} />,     color: 'bg-orange-900/60',  textColor: 'text-orange-300', chipColor: 'bg-orange-900/40 border-orange-700 text-orange-300' },
   airport: { label: 'APT', icon: <Building2 size={10} />, color: 'bg-red-900/60',     textColor: 'text-red-300',    chipColor: 'bg-red-900/40 border-red-700 text-red-300'    },
   waypoint:{ label: 'WPT', icon: <MapPin size={10} />,    color: 'bg-gray-700/80',    textColor: 'text-gray-300',   chipColor: 'bg-[#C08497]/20 border-[#C08497] text-[#D8A8B5]' },
+  fir:     { label: 'FIR', icon: <Globe2 size={10} />,    color: 'bg-sky-900/60',     textColor: 'text-sky-300',    chipColor: 'bg-sky-900/40 border-sky-700 text-sky-300'      },
 }
 
 export default function SearchBar() {
@@ -146,6 +147,30 @@ export default function SearchBar() {
       }
     }
 
+    if (result.type === 'fir') {
+      dispatch({ type: 'SET_LOADING', payload: true })
+      try {
+        const [routeData, matchedGeoJSON] = await Promise.all([
+          api.routes.list({ fir: result.id }),
+          api.routes.geometry({ fir: result.id }),
+        ])
+        dispatch({ type: 'SET_ACTIVE_FIR', payload: result.id })
+        applyRoutes(routeData.routes, matchedGeoJSON)
+
+        // FIR 경계 자체는 이미 앱 시작 시 통째로 받아둔 firGeoJSON에 다 있음 —
+        // 따로 fetch할 필요 없이 icao로 필터링만 해서 그 폴리곤 범위로 지도를 맞춤
+        const firFeature = state.firGeoJSON?.features.find(f => f.properties?.icao === result.id)
+        if (firFeature) {
+          try {
+            const [minLon, minLat, maxLon, maxLat] = turf.bbox(firFeature as any)
+            dispatch({ type: 'SET_FIT_BOUNDS', payload: [[minLon, minLat], [maxLon, maxLat]] })
+          } catch {}
+        }
+      } finally {
+        dispatch({ type: 'SET_LOADING', payload: false })
+      }
+    }
+
     if (result.type === 'airport') {
       dispatch({ type: 'SET_ORIGIN', payload: result.id })
       if (result.lat !== null && result.lon !== null) {
@@ -163,6 +188,7 @@ export default function SearchBar() {
       dispatch({ type: 'CLEAR_AIRWAY_ENDPOINTS' })
       dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
       dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
+      dispatch({ type: 'SET_ACTIVE_FIR', payload: null })
       dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: null })
       dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: null })
       return
@@ -177,6 +203,8 @@ export default function SearchBar() {
       if (state.activeAirway === id) dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
     } else if (type === 'waypoint' && state.activeWaypoint === id) {
       dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
+    } else if (type === 'fir' && state.activeFir === id) {
+      dispatch({ type: 'SET_ACTIVE_FIR', payload: null })
     }
   }
 
@@ -187,6 +215,7 @@ export default function SearchBar() {
     dispatch({ type: 'CLEAR_AIRWAY_ENDPOINTS' })
     dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
     dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
+    dispatch({ type: 'SET_ACTIVE_FIR', payload: null })
     dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: null })
     dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: null })
   }
@@ -196,7 +225,7 @@ export default function SearchBar() {
   return (
     <div ref={containerRef} className="relative">
       <p className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold mb-1.5">
-        Airway · Airport · Waypoint
+        Airway · Airport · Waypoint · FIR
       </p>
 
       {/* Input */}

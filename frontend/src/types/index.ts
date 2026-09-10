@@ -115,7 +115,7 @@ export interface GeoJSONFeature {
 }
 
 export interface SearchResult {
-  type: 'airport' | 'airway' | 'waypoint'
+  type: 'airport' | 'airway' | 'waypoint' | 'fir'
   id: string
   name: string
   lat: number | null
@@ -596,6 +596,7 @@ export interface AppState {
   hoveredRouteId: number | null  // 목록(우클릭 메뉴/사이드바)에서 마우스오버 중인 항로 — 지도에 노란색으로 강조
   activeAirway: string | null
   activeWaypoint: string | null
+  activeFir: string | null  // 검색으로 찾은 FIR/UIR 1개 강조 (icao) — firGeoJSON에서 필터링해서 씀
   // 공간 필터(태풍 등)와 교차하는 항로 id — 목록에서 정렬/강조용, allRoutes는 그대로 유지
   affectedRouteIds: number[]
   // Data
@@ -667,6 +668,7 @@ export type AppAction =
   | { type: 'SET_AFFECTED_ROUTES'; payload: number[] }
   | { type: 'SET_ACTIVE_AIRWAY'; payload: string | null }
   | { type: 'SET_ACTIVE_WAYPOINT'; payload: string | null }
+  | { type: 'SET_ACTIVE_FIR'; payload: string | null }
   | { type: 'SET_ALL_ROUTES'; payload: RouteMeta[] }
   | { type: 'SET_ROUTE_GEOJSON'; payload: GeoJSONFeatureCollection | null }
   | { type: 'SET_AIRPORTS_GEOJSON'; payload: GeoJSONFeatureCollection }

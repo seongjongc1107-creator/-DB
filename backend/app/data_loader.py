@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ from typing import Dict, List, Optional, Tuple
 DATA_DIR = Path(__file__).parent.parent / "data"
 NAVDATA_CSV = DATA_DIR / "NAVDATA.csv"
 ROUTES_CSV = DATA_DIR / "Navblue_Route.csv"
+FIR_GEOJSON = DATA_DIR / "fir_boundaries.geojson"
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +190,42 @@ def _fix_antimeridian(coords: List[List[float]]) -> List[List[float]]:
     return result
 
 
+def _geometry_bbox(geometry: dict) -> Tuple[float, float, float, float]:
+    """(min_lon, min_lat, max_lon, max_lat) over every ring of a Polygon/MultiPolygon."""
+    polys = geometry["coordinates"] if geometry["type"] == "MultiPolygon" else [geometry["coordinates"]]
+    lons = [pt[0] for poly in polys for ring in poly for pt in ring]
+    lats = [pt[1] for poly in polys for ring in poly for pt in ring]
+    return (min(lons), min(lats), max(lons), max(lats))
+
+
+def _point_in_ring(lon: float, lat: float, ring: List[List[float]]) -> bool:
+    """Standard pnpoly ray-casting test for a single ring."""
+    inside = False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = ring[i]
+        xj, yj = ring[j]
+        if (yi > lat) != (yj > lat) and lon < (xj - xi) * (lat - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _point_in_polygon(lon: float, lat: float, rings: List[List[List[float]]]) -> bool:
+    """rings[0] = exterior, rest = holes. XOR-ing per-ring hits handles holes without
+    special-casing: a point inside the exterior AND inside a hole flips twice → outside."""
+    inside = False
+    for ring in rings:
+        if _point_in_ring(lon, lat, ring):
+            inside = not inside
+    return inside
+
+
+def _point_in_geometry(lon: float, lat: float, geometry: dict) -> bool:
+    polys = geometry["coordinates"] if geometry["type"] == "MultiPolygon" else [geometry["coordinates"]]
+    return any(_point_in_polygon(lon, lat, poly) for poly in polys)
+
+
 # ---------------------------------------------------------------------------
 # Main data store
 # ---------------------------------------------------------------------------
@@ -217,6 +255,19 @@ class NavDataStore:
         self.route_by_origin: Dict[str, List[int]] = defaultdict(list)
         self.route_by_dest: Dict[str, List[int]] = defaultdict(list)
         self.route_by_token: Dict[str, List[int]] = defaultdict(list)
+        # route.id → (min_lon, min_lat, max_lon, max_lat) — FIR 교차 판정 전에
+        # bbox로 먼저 걸러내서, 관련 없는 항로 수천 개까지 매번 point-in-polygon
+        # 돌리는 걸 피하기 위한 것 (get_routes_by_fir 참고).
+        self.route_bbox: Dict[int, Tuple[float, float, float, float]] = {}
+
+        # FIR/UIR 경계 (VATSIM vatspy-data-project) — navdata.py의 /navdata/fir가
+        # 그대로 내려주는 원본 geojson과, icao별 빠른 조회/bbox 캐시.
+        self.fir_data: dict = {"type": "FeatureCollection", "features": []}
+        self.fir_by_icao: Dict[str, dict] = {}
+        self.fir_bbox_by_icao: Dict[str, Tuple[float, float, float, float]] = {}
+        # fir icao → 그 공역을 지나는 route.id 목록. 계산 비용이 있어 최초 조회 시에만
+        # 채우고(load/reload 시 초기화), 이후 같은 FIR 재조회는 dict 조회로 끝냄.
+        self._fir_route_cache: Dict[str, List[int]] = {}
 
         self.loaded = False
 
@@ -239,12 +290,23 @@ class NavDataStore:
               f"  procedures={len(self.procedure_lookup)}")
         self._build_fix_lookup()
         self._build_airway_segments()
+        self._load_fir_boundaries()
         print("Loading routes…")
         self._load_routes()
         self._resolve_geometries()
         self._build_route_indexes()
         print(f"  routes={len(self.routes)}  fix_lookup={len(self.fix_lookup)}")
         self.loaded = True
+
+    def _load_fir_boundaries(self) -> None:
+        with open(FIR_GEOJSON, encoding="utf-8") as f:
+            self.fir_data = json.load(f)
+        for feat in self.fir_data.get("features", []):
+            icao = (feat.get("properties", {}).get("icao") or "").upper()
+            if not icao:
+                continue
+            self.fir_by_icao[icao] = feat
+            self.fir_bbox_by_icao[icao] = _geometry_bbox(feat["geometry"])
 
     def reload(self) -> None:
         """서버 재시작 없이 NAVDATA/항로 CSV를 다시 읽어들임(관리자 업로드용).
@@ -269,6 +331,11 @@ class NavDataStore:
         self.route_by_origin = staging.route_by_origin
         self.route_by_dest = staging.route_by_dest
         self.route_by_token = staging.route_by_token
+        self.route_bbox = staging.route_bbox
+        self.fir_data = staging.fir_data
+        self.fir_by_icao = staging.fir_by_icao
+        self.fir_bbox_by_icao = staging.fir_bbox_by_icao
+        self._fir_route_cache = {}
         self.loaded = True
         self.all_routes_geojson_cache = None
 
@@ -777,6 +844,10 @@ class NavDataStore:
     def _resolve_geometries(self) -> None:
         for route in self.routes:
             route.coordinates, route.passed_fixes, _, route.legs = self.resolve_route_tokens(route.tokens)
+            if route.coordinates:
+                lons = [c[0] for c in route.coordinates]
+                lats = [c[1] for c in route.coordinates]
+                self.route_bbox[route.id] = (min(lons), min(lats), max(lons), max(lats))
 
     def _build_route_indexes(self) -> None:
         for route in self.routes:
@@ -795,17 +866,49 @@ class NavDataStore:
     # Query helpers
     # ------------------------------------------------------------------
 
+    def get_routes_by_fir(self, icao: str) -> List[int]:
+        """이 FIR/공역 폴리곤을 실제로 지나는 항로 id들 — route.coordinates의 정점 중
+        하나라도 폴리곤 안에 있으면 통과로 판정(항로가 이미 airway를 펼치면서 촘촘한
+        중간 fix까지 다 갖고 있어서, 직선 DCT 구간이 폴리곤 한쪽 귀퉁이만 살짝
+        스치고 지나가는 극히 드문 경우가 아니면 이 근사로 충분함). 이름당 계산 비용이
+        있어 최초 조회만 실제로 계산하고 이후엔 캐시에서 꺼내 씀."""
+        icao = icao.upper()
+        if icao in self._fir_route_cache:
+            return self._fir_route_cache[icao]
+        feature = self.fir_by_icao.get(icao)
+        if feature is None:
+            self._fir_route_cache[icao] = []
+            return []
+        fmin_lon, fmin_lat, fmax_lon, fmax_lat = self.fir_bbox_by_icao[icao]
+        geometry = feature["geometry"]
+        matched: List[int] = []
+        for route in self.routes:
+            bbox = self.route_bbox.get(route.id)
+            if not bbox:
+                continue
+            rmin_lon, rmin_lat, rmax_lon, rmax_lat = bbox
+            # bbox가 아예 안 겹치면 스킵 — 이 필터가 없으면 항로 하나당 FIR 폴리곤
+            # 전체(수십~수백 개 정점)를 매번 점검하게 돼서, 이 FIR과 무관한 나머지
+            # 항로 수천 개까지 전부 비싼 point-in-polygon을 돌리게 됨
+            if rmax_lon < fmin_lon or rmin_lon > fmax_lon or rmax_lat < fmin_lat or rmin_lat > fmax_lat:
+                continue
+            if any(_point_in_geometry(lon, lat, geometry) for lon, lat in route.coordinates):
+                matched.append(route.id)
+        self._fir_route_cache[icao] = matched
+        return matched
+
     def get_routes(
         self,
         origin: Optional[str] = None,
         destination: Optional[str] = None,
         fix: Optional[str] = None,
+        fir: Optional[str] = None,
         ids: Optional[List[int]] = None,
     ) -> List[Route]:
         if ids is not None:
             return [self.routes[i] for i in ids if i < len(self.routes)]
 
-        # origin/destination/fix가 여러 개 동시에 오면 전부 만족하는 교집합이어야
+        # origin/destination/fix/fir가 여러 개 동시에 오면 전부 만족하는 교집합이어야
         # 함(예: "N892 지나는 RKSI→VVPQ 항로") — 예전엔 fix가 있으면 origin/
         # destination을 아예 무시하는 버그가 있었음
         id_set: Optional[set] = None
@@ -814,6 +917,8 @@ class NavDataStore:
             nonlocal id_set
             id_set = new_ids if id_set is None else (id_set & new_ids)
 
+        if fir:
+            _intersect(set(self.get_routes_by_fir(fir)))
         if fix:
             # 콤마로 여러 fix/항공로를 같이 보내면 전부 지나는 항로만 남도록 AND로 교집합
             # (예: "N892 지나면서 A582도 지나는 항로" — 검색창에서 여러 개 골랐을 때 씀)

@@ -46,8 +46,9 @@ def list_routes(
     origin: Optional[str] = None,
     destination: Optional[str] = None,
     fix: Optional[str] = Query(None, description="Comma-separated fix/airway names (AND)"),
+    fir: Optional[str] = Query(None, description="FIR/UIR ICAO code — routes passing through it"),
 ):
-    routes = store.get_routes(origin=origin, destination=destination, fix=fix)
+    routes = store.get_routes(origin=origin, destination=destination, fix=fix, fir=fir)
     return {"count": len(routes), "routes": [_route_meta(r) for r in routes]}
 
 
@@ -56,18 +57,19 @@ def route_geometry(
     origin: Optional[str] = None,
     destination: Optional[str] = None,
     fix: Optional[str] = Query(None, description="Comma-separated fix/airway names (AND)"),
+    fir: Optional[str] = Query(None, description="FIR/UIR ICAO code — routes passing through it"),
     ids: Optional[str] = Query(None, description="Comma-separated route IDs"),
 ):
     id_list = None
     if ids:
         id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()]
 
-    unfiltered = origin is None and destination is None and fix is None and id_list is None
+    unfiltered = origin is None and destination is None and fix is None and fir is None and id_list is None
     if unfiltered and store.all_routes_geojson_cache is not None:
         return store.all_routes_geojson_cache
 
     routes = store.get_routes(
-        origin=origin, destination=destination, fix=fix, ids=id_list
+        origin=origin, destination=destination, fix=fix, fir=fir, ids=id_list
     )
     features = [f for r in routes if (f := _route_feature(r)) is not None]
     result = {"type": "FeatureCollection", "features": features}

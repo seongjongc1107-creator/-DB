@@ -1,5 +1,3 @@
-import json
-from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from ..data_loader import store
@@ -8,12 +6,6 @@ _TYPE_LABEL = {
     'I': 'ILS', 'L': 'LPV', 'R': 'RNP', 'V': 'VOR',
     'N': 'NDB', 'G': 'GLS', 'B': 'LOC BC', 'S': 'LDA', 'D': 'VOR/DME',
 }
-
-# 전 세계 FIR/UIR 경계 — VATSIM vatspy-data-project (CC BY-SA 4.0) 좌표를 그대로 사용.
-# 실제 ICAO FIR 경계에 맞춰 관리되는 공개 데이터라 이전의 손그림 근사치(동아시아 6개)보다 정확하고 범위도 넓음.
-_FIR_DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "fir_boundaries.geojson"
-with open(_FIR_DATA_PATH, encoding="utf-8") as _f:
-    _FIR_DATA = json.load(_f)
 
 router = APIRouter()
 
@@ -75,7 +67,7 @@ def get_airport_info(icao: str):
 
 @router.get("/fir")
 def get_fir():
-    return _FIR_DATA
+    return store.fir_data
 
 
 @router.get("/airports")

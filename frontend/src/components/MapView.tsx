@@ -490,6 +490,16 @@ export default function MapView() {
 
   const airwayData = state.airwayGeoJSON ?? EMPTY_FC
 
+  // 검색으로 고른 FIR 강조 — 이미 앱 시작 시 다 받아둔 firGeoJSON(427개)에서
+  // 그 icao만 필터링. layers.fir(기본 경계 레이어) 켜짐 여부와 무관하게 항상 보임.
+  const activeFirData = useMemo(() => {
+    if (!state.activeFir || !state.firGeoJSON) return EMPTY_FC
+    return {
+      type: 'FeatureCollection' as const,
+      features: state.firGeoJSON.features.filter(f => f.properties?.icao === state.activeFir),
+    }
+  }, [state.activeFir, state.firGeoJSON])
+
   // ── 검색한 항공로 자체가 지나는 waypoint (좌표·이름이 같은 순서로 옴) ──
   const airwayWaypointsData = useMemo(() => {
     const seen = new Set<string>()
@@ -541,6 +551,7 @@ export default function MapView() {
     // waypoint/airway 검색 = "검색한 대상 자체" 강조, airway-line과 같은 무채색 핑크로 통일
     waypoint: { ping: 'bg-[#C08497]',   dot: 'bg-[#C08497]',   text: 'text-[#D8A8B5]' },
     airway:   { ping: 'bg-[#C08497]',   dot: 'bg-[#C08497]',   text: 'text-[#D8A8B5]' },
+    fir:      { ping: 'bg-[#C08497]',   dot: 'bg-[#C08497]',   text: 'text-[#D8A8B5]' },
     route:    { ping: 'bg-blue-400',    dot: 'bg-blue-500',    text: 'text-blue-300'  },
   }
 
@@ -1009,6 +1020,20 @@ export default function MapView() {
             />
           </Source>
         )}
+
+        {/* ── 검색으로 고른 FIR 강조 — airway 검색과 같은 톤(핑크)으로 통일 ── */}
+        <Source id="active-fir" type="geojson" data={activeFirData}>
+          <Layer
+            id="active-fir-fill"
+            type="fill"
+            paint={{ 'fill-color': '#C08497', 'fill-opacity': 0.12 }}
+          />
+          <Layer
+            id="active-fir-line"
+            type="line"
+            paint={{ 'line-color': '#C08497', 'line-width': 2.5, 'line-opacity': 0.9 }}
+          />
+        </Source>
 
         {/* ── 전체 Airway (배경, waypoints처럼 줌인하면 표시) ──────── */}
         <Source id="all-airways" type="geojson" data={allAirwaysData}>
