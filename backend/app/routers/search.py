@@ -21,21 +21,39 @@ def search(q: str = Query(..., min_length=1)):
                 "description": f"Airport",
             })
 
-    # Airways (exact prefix match first)
+    # Airways (exact prefix match first) — 같은 이름의 항공로가 서로 다른 대륙에
+    # 동시에 존재할 수 있음(예: Y711이 한국과 유럽에 둘 다 있음, 서로 무관한 별개
+    # 항로). 예전엔 이름 하나에 결과 1개만 내보내서, 골랐을 때 지도가 두 지역을
+    # 합친 엉뚱한 범위로 확대되는 문제가 있었음(waypoint는 동명이인 위치별로 이미
+    # 분리해서 내보내고 있었는데 airway만 빠져 있었던 것) — segment별로 나눠서
+    # 사용자가 원하는 지역을 직접 고를 수 있게 함.
     aw_exact = sorted(
         [n for n in store.airway_names if n.upper().startswith(q_up)],
         key=lambda x: (x != q_up, x),
     )
     for aw_name in aw_exact[:20]:
         route_count = len(store.route_by_token.get(aw_name, []))
-        results.append({
-            "type": "airway",
-            "id": aw_name,
-            "name": aw_name,
-            "lat": None,
-            "lon": None,
-            "description": f"Airway · {route_count} routes using it",
-        })
+        segs: dict = {}
+        for f in store.airways.get(aw_name, []):
+            segs.setdefault(f.segment, []).append(f)
+        seg_ids = sorted(segs)
+        for seg_id in seg_ids:
+            seg_fixes = sorted(segs[seg_id], key=lambda x: x.sequence)
+            anchor = seg_fixes[0] if seg_fixes else None
+            description = f"Airway · {route_count} routes using it"
+            if len(seg_ids) > 1 and anchor:
+                ns = 'N' if anchor.lat >= 0 else 'S'
+                ew = 'E' if anchor.lon >= 0 else 'W'
+                description += f" · {anchor.fix} 부근 {abs(anchor.lat):.1f}°{ns} {abs(anchor.lon):.1f}°{ew}"
+            results.append({
+                "type": "airway",
+                "id": aw_name,
+                "segment": seg_id if len(seg_ids) > 1 else None,
+                "name": aw_name,
+                "lat": anchor.lat if anchor else None,
+                "lon": anchor.lon if anchor else None,
+                "description": description,
+            })
 
     # Waypoints/Navaids (prefix match, cap at 15) — fix_lookup은 waypoint(5글자
     # RNAV 지점)뿐 아니라 NDB/VOR 같은 3글자 navaid, airway에 내장된 중간 fix,

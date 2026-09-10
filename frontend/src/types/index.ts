@@ -121,6 +121,10 @@ export interface SearchResult {
   lat: number | null
   lon: number | null
   description: string
+  // airway 전용 — 같은 이름의 항공로가 서로 다른 대륙에 따로 존재할 때
+  // (예: Y711이 한국/유럽에 둘 다 있음) 검색 결과가 지역별로 분리되어 오는데,
+  // 어느 지역을 고른 건지 구분하기 위한 값. 지역이 하나뿐이면 null.
+  segment?: number | null
 }
 
 export interface AircraftState {

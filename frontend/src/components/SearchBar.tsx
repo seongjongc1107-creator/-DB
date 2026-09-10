@@ -84,11 +84,22 @@ export default function SearchBar() {
     if (result.type === 'airway') {
       dispatch({ type: 'SET_LOADING', payload: true })
       try {
-        const [airwayGeoJSON, routeData, matchedGeoJSON] = await Promise.all([
+        const [airwayGeoJSONRaw, routeData, matchedGeoJSON] = await Promise.all([
           api.navdata.airway(result.id),
           api.navdata.airwayRoutes(result.id),
           api.routes.geometry({ fix: result.id }),
         ])
+        // 같은 이름의 항공로가 여러 대륙에 흩어져 있는 경우, 검색 결과에서 고른
+        // 지역(segment)만 남김 — 안 그러면 무관한 다른 대륙의 항로 선까지 같이
+        // 그려지고, 아래 bbox 계산도 두 지역을 합친 범위로 튀어버림
+        const airwayGeoJSON = result.segment == null
+          ? airwayGeoJSONRaw
+          : {
+              ...airwayGeoJSONRaw,
+              features: airwayGeoJSONRaw.features.filter(
+                f => f.properties?.segment === result.segment,
+              ),
+            }
         dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: result.id })
         dispatch({ type: 'MERGE_AIRWAY_GEOJSON', payload: airwayGeoJSON })
         applyRoutes(routeData.routes, matchedGeoJSON)
