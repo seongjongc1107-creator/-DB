@@ -99,7 +99,17 @@ def _update_backend_code_from_git() -> bool:
 
     pull = _run(["git", "pull", "origin", "main"], REPO_ROOT)
     if pull.returncode != 0:
-        raise RuntimeError(f"git pull 실패: {pull.stderr.strip()}")
+        # 관리자 페이지 업로드(admin.py::upload_data)는 backend/data/*.csv를 git
+        # 모르게 디스크에 직접 덮어쓰고 커밋은 안 하므로, 다음 pull이 "로컬 변경이
+        # merge로 덮어써질 것"이라며 매번 막히는 상태가 됨 — 업로드 쪽이 이미
+        # backend/data/backups/에 타임스탬프 백업을 남기니(admin.py::_backup)
+        # 데이터 유실 걱정 없이 stash로 치우고 재시도해도 안전함.
+        if "would be overwritten by merge" in pull.stderr:
+            stash = _run(["git", "stash", "--include-untracked"], REPO_ROOT)
+            if stash.returncode == 0:
+                pull = _run(["git", "pull", "origin", "main"], REPO_ROOT)
+        if pull.returncode != 0:
+            raise RuntimeError(f"git pull 실패: {pull.stderr.strip()}")
 
     # pull은 이미 적용된 뒤라, 이 아래 어디서 실패하든(returncode 실패든, uv 자체가
     # 없어서 파이썬이 FileNotFoundError를 던지는 경우든) 반드시 롤백해야 한다.
