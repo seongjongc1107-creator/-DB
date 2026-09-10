@@ -491,6 +491,19 @@ export interface AdminMinimaUploadResult {
   unresolved_iata: string[]
 }
 
+export interface AdminUpdateStatus {
+  current_commit: string
+  current_static_commit: string
+  last_update_check: string | null
+  last_update_applied: string | null
+  last_update_error: string | null
+}
+
+export interface AdminUpdateNowResult {
+  updated: boolean
+  error: string | null
+}
+
 export interface CollectStatus {
   icao: string
   start: string

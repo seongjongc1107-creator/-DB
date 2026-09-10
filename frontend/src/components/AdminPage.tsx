@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { X, ShieldCheck, Upload, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Database, Cloud, Wind, Mountain, Moon, Route } from 'lucide-react'
+import { X, ShieldCheck, Upload, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Database, Cloud, Wind, Mountain, Moon, Route, GitBranch, Download } from 'lucide-react'
 import { api } from '../api/client'
-import type { AdminDataStatus, AdminMinimaUploadResult, AdminUploadResult, BaseAirportCoverage, FplArchiveStatus, MetarData, SchedulerStatus } from '../types'
+import type { AdminDataStatus, AdminMinimaUploadResult, AdminUpdateStatus, AdminUploadResult, BaseAirportCoverage, FplArchiveStatus, MetarData, SchedulerStatus } from '../types'
 
 interface Props {
   onClose: () => void
@@ -232,6 +232,95 @@ function FplArchiveSection({
               : '아직 실행된 적 없음(다음 새벽 3시에 첫 실행)'}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── 자체 호스팅 서버(JFPS PC) 코드/데이터 업데이트 (비밀번호 필요) ─────────────
+// GYSJ(JOIN) 자체 코드를 갱신하는 "지금 업데이트"와는 완전히 별개 버튼임 —
+// 저게 "이미 최신"이라고 떠도 이 레포(포트 8001)는 전혀 갱신되지 않았을 수 있음.
+// Render처럼 push마다 컨테이너를 새로 만드는 배포에선 의미 없지만 눌러도 무해함
+// (그냥 git 상태를 조회/반영할 뿐이고, 실패해도 서버가 자동 롤백함).
+
+function timeAgoLabel(iso: string | null): string {
+  if (!iso) return '기록 없음'
+  const min = Math.round((Date.now() - Date.parse(iso)) / 60000)
+  if (min < 1) return '방금 전'
+  if (min < 60) return `${min}분 전`
+  if (min < 1440) return `${Math.round(min / 60)}시간 전`
+  return `${Math.round(min / 1440)}일 전`
+}
+
+function SelfHostUpdateSection({ password }: { password: string }) {
+  const [status, setStatus] = useState<AdminUpdateStatus | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<{ updated: boolean; error: string | null } | null>(null)
+
+  function loadStatus() {
+    api.admin.updateStatus().then(setStatus).catch(() => {})
+  }
+
+  useEffect(() => { loadStatus() }, [])
+
+  async function handleUpdate() {
+    if (!password) { setError('비밀번호를 입력하세요'); return }
+    setLoading(true); setError(null); setResult(null)
+    try {
+      const res = await api.admin.updateNow(password)
+      setResult(res)
+      loadStatus()
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 mb-2">
+        <GitBranch size={13} className="text-gray-500" />
+        <h3 className="text-xs font-bold text-gray-300">코드/데이터 배포 (자체 호스팅 서버 전용)</h3>
+      </div>
+
+      {status && (
+        <div className="text-[11px] text-gray-400 font-mono mb-2.5 flex flex-wrap gap-x-3 gap-y-1">
+          <span>백엔드 {status.current_commit}</span>
+          <span>프론트 {status.current_static_commit}</span>
+          <span className="text-gray-600">마지막 확인 {timeAgoLabel(status.last_update_check)}</span>
+          <span className="text-gray-600">마지막 반영 {timeAgoLabel(status.last_update_applied)}</span>
+        </div>
+      )}
+      {status?.last_update_error && (
+        <div className="text-[11px] text-amber-400 mb-2 flex items-start gap-1">
+          <AlertTriangle size={11} className="mt-0.5 shrink-0" /> 마지막 확인 시 오류: {status.last_update_error}
+        </div>
+      )}
+
+      <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-3 space-y-2">
+        <div className="text-[11px] text-gray-500">
+          main(백엔드 코드)+deploy-static(프론트 빌드)을 git으로 받아 반영 — 이 PC가
+          JFPS PC처럼 자체 호스팅 중일 때만 의미 있음. GYSJ(JOIN) 자체 "지금 업데이트"와는
+          별개라 그쪽이 최신이어도 여기가 안 됐을 수 있음.
+        </div>
+        <button
+          onClick={handleUpdate}
+          disabled={loading}
+          className="flex items-center gap-1.5 bg-purple-700 hover:bg-purple-600 disabled:opacity-40 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded transition-colors"
+        >
+          {loading ? <RefreshCw size={11} className="animate-spin" /> : <Download size={11} />}
+          지금 업데이트
+        </button>
+        {error && <div className="text-[10px] text-red-400">{error}</div>}
+        {result && !error && (
+          result.updated
+            ? <div className="text-[10px] text-green-400">새 버전 반영됨 — 잠시 후 서버가 재시작됩니다</div>
+            : result.error
+              ? <div className="text-[10px] text-red-400">업데이트 실패: {result.error}</div>
+              : <div className="text-[10px] text-gray-500">이미 최신 상태입니다</div>
+        )}
+      </div>
     </div>
   )
 }
@@ -484,6 +573,8 @@ export default function AdminPage({ onClose }: Props) {
               className="block mt-1 w-full bg-gray-950 border border-gray-700 rounded px-2 py-1.5 text-xs text-white"
             />
           </label>
+
+          <SelfHostUpdateSection password={password} />
 
           <div>
             <div className="flex items-center gap-1.5 mb-2">

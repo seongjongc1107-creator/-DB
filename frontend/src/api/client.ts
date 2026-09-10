@@ -1,4 +1,4 @@
-import type { AdminDataStatus, AdminMinimaUploadResult, AdminUploadResult, AircraftState, AirportDetail, CollectStatus, CountryInfo, CurfewInfo, DiversionInferResult, FoisFlight, FplCollectStatus, FplHistoryStats, FplWaypointSearchResult, FoisRoute, GeoJSONFeatureCollection, MetarData, RouteMeta, ScenarioQueryStatus, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherThresholds, WeatherTrendData } from '../types'
+import type { AdminDataStatus, AdminMinimaUploadResult, AdminUpdateNowResult, AdminUpdateStatus, AdminUploadResult, AircraftState, AirportDetail, CollectStatus, CountryInfo, CurfewInfo, DiversionInferResult, FoisFlight, FplCollectStatus, FplHistoryStats, FplWaypointSearchResult, FoisRoute, GeoJSONFeatureCollection, MetarData, RouteMeta, ScenarioQueryStatus, SearchResult, Typhoon, TyphoonTrackPoint, VolcanicAshAdvisory, WeatherHistoryMonthly, WeatherHistoryTrend, WeatherThresholds, WeatherTrendData } from '../types'
 
 const BASE = '/api'
 
@@ -111,6 +111,17 @@ export const api = {
       const body = await res.json()
       if (!res.ok) throw new Error(body.detail || `업로드 실패 (${res.status})`)
       return body as AdminMinimaUploadResult
+    },
+    // 자체 호스팅 서버(JFPS PC) 전용 — main(백엔드 코드)+deploy-static(프론트 빌드)을
+    // git으로 받아 반영. Render 등 컨테이너 배포 환경에선 의미 없음(눌러도 무해).
+    updateStatus: () => get<AdminUpdateStatus>('/admin/update-status'),
+    updateNow: async (password: string) => {
+      const form = new FormData()
+      form.append('password', password)
+      const res = await fetch(`${BASE}/admin/update-now`, { method: 'POST', body: form })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.detail || `업데이트 실패 (${res.status})`)
+      return body as AdminUpdateNowResult
     },
   },
   typhoon: {
