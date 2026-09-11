@@ -22,6 +22,8 @@ export const api = {
     },
     origins: () => get<string[]>('/routes/origins'),
     destinations: () => get<string[]>('/routes/destinations'),
+    countries: (ids: string) =>
+      get<Record<string, { country: string; entry: string; exit: string }[]>>('/routes/countries', { ids }),
     alternatives: (odPairs: string, excludeIds: string) =>
       get<GeoJSONFeatureCollection>('/routes/alternatives', { od_pairs: odPairs, exclude_ids: excludeIds }),
     parse: (route: string) =>

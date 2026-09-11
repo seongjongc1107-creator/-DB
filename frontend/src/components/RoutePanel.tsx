@@ -243,14 +243,36 @@ export default function RoutePanel() {
     else dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
   }
 
-  function exportCsv() {
-    const header = ['Origin', 'Destination', 'Number', 'Affected', 'Route', 'Distance (NM)', 'Aircraft']
-    const rows = routes.map(r => [
-      r.origin, r.destination, r.number,
-      affectedIdSet.has(r.id) ? 'Y' : 'N',
-      `"${r.route.replace(/"/g, '""')}"`,
-      r.distance, r.aircraft ?? '',
-    ])
+  async function exportCsv() {
+    // 항로별 통과 국가(진입/이탈 지점)를 국가 개수만큼 컬럼을 늘려서 붙임 —
+    // 항로마다 지나는 나라 수가 다르므로, 이번에 내보내는 항로들 중 가장 많이
+    // 통과하는 항로 기준으로 "Country 1, Country 2, ..." 컬럼을 만들고 나머지는 빈 칸.
+    let countriesByRoute: Record<string, { country: string; entry: string; exit: string }[]> = {}
+    if (routes.length > 0) {
+      try {
+        countriesByRoute = await api.routes.countries(routes.map(r => r.id).join(','))
+      } catch {}
+    }
+    const maxCountries = Math.max(0, ...routes.map(r => countriesByRoute[r.id]?.length ?? 0))
+    const countryHeaders = Array.from({ length: maxCountries }, (_, i) => `Country ${i + 1}`)
+
+    const header = ['Origin', 'Destination', 'Number', 'Affected', 'Route', 'Distance (NM)', 'Aircraft', ...countryHeaders]
+    const rows = routes.map(r => {
+      const crossings = countriesByRoute[r.id] ?? []
+      const countryCells = Array.from({ length: maxCountries }, (_, i) => {
+        const c = crossings[i]
+        if (!c) return ''
+        const label = c.entry === c.exit ? `${c.country} ${c.entry}` : `${c.country} ${c.entry}→${c.exit}`
+        return `"${label.replace(/"/g, '""')}"`
+      })
+      return [
+        r.origin, r.destination, r.number,
+        affectedIdSet.has(r.id) ? 'Y' : 'N',
+        `"${r.route.replace(/"/g, '""')}"`,
+        r.distance, r.aircraft ?? '',
+        ...countryCells,
+      ]
+    })
     const csv = [header, ...rows].map(row => row.join(',')).join('\n')
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)

@@ -16,6 +16,9 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 NAVDATA_CSV = DATA_DIR / "NAVDATA.csv"
 ROUTES_CSV = DATA_DIR / "Navblue_Route.csv"
 FIR_GEOJSON = DATA_DIR / "fir_boundaries.geojson"
+# Natural Earth 1:50m admin-0 국경 (public domain) — d3/topojson의 world-atlas
+# 패키지에서 뽑아낸 것을 그대로 파일로 저장해둠 (런타임에 npm 의존성 불필요).
+COUNTRIES_GEOJSON = DATA_DIR / "countries.geojson"
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +109,9 @@ class Route:
     # {"airway": 이름(SID/STAR/항공로/"DCT"), "coords": [[lon,lat], ...]} — 프론트에서
     # symbol-placement:line으로 그 구간 전체를 따라 라벨을 반복 표시함.
     legs: List[Dict[str, object]] = field(default_factory=list)
+    # coordinates[i]의 이름 — SID/STAR 절차 구간에서 생긴 점은 이름이 없어 None
+    # (국가 통과 진입/이탈 지점 표시용, get_country_crossings 참고)
+    point_names: List[Optional[str]] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +275,18 @@ class NavDataStore:
         # 채우고(load/reload 시 초기화), 이후 같은 FIR 재조회는 dict 조회로 끝냄.
         self._fir_route_cache: Dict[str, List[int]] = {}
 
+        # 국가 경계(Natural Earth) — (bbox, 영문 국가명, geometry) 튜플 목록.
+        # get_country_crossings에서 항로 좌표 하나하나가 어느 나라인지 판정할 때 씀.
+        self.country_candidates: List[Tuple[Tuple[float, float, float, float], str, dict]] = []
+        # (lon,lat)을 반올림한 키 → 국가명(없으면 None). 같은 fix를 여러 항로가
+        # 공유하는 경우가 워낙 많아서(2482개 항로 좌표 96079개 중 실제 유니크 좌표는
+        # 4447개뿐) 캐시 없이 매번 계산하면 전체 항로 기준 20초 넘게 걸림 — 캐시로
+        # 1초 미만까지 줄임. load/reload 시 초기화.
+        self._country_at_cache: Dict[Tuple[float, float], Optional[str]] = {}
+        # route.id → get_country_crossings() 결과 캐시 (CSV 내보내기에서 같은
+        # 항로를 반복 조회할 수 있어 재계산 방지). load/reload 시 초기화.
+        self._country_crossing_cache: Dict[int, List[Dict[str, str]]] = {}
+
         self.loaded = False
 
         # /api/routes/geometry가 필터 없이(전체 2766개 항로) 호출될 때마다 매번
@@ -291,6 +309,7 @@ class NavDataStore:
         self._build_fix_lookup()
         self._build_airway_segments()
         self._load_fir_boundaries()
+        self._load_countries()
         print("Loading routes…")
         self._load_routes()
         self._resolve_geometries()
@@ -307,6 +326,17 @@ class NavDataStore:
                 continue
             self.fir_by_icao[icao] = feat
             self.fir_bbox_by_icao[icao] = _geometry_bbox(feat["geometry"])
+
+    def _load_countries(self) -> None:
+        with open(COUNTRIES_GEOJSON, encoding="utf-8") as f:
+            data = json.load(f)
+        candidates = []
+        for feat in data.get("features", []):
+            name = (feat.get("properties", {}) or {}).get("name")
+            if not name:
+                continue
+            candidates.append((_geometry_bbox(feat["geometry"]), name, feat["geometry"]))
+        self.country_candidates = candidates
 
     def reload(self) -> None:
         """서버 재시작 없이 NAVDATA/항로 CSV를 다시 읽어들임(관리자 업로드용).
@@ -336,6 +366,9 @@ class NavDataStore:
         self.fir_by_icao = staging.fir_by_icao
         self.fir_bbox_by_icao = staging.fir_bbox_by_icao
         self._fir_route_cache = {}
+        self.country_candidates = staging.country_candidates
+        self._country_at_cache = {}
+        self._country_crossing_cache = {}
         self.loaded = True
         self.all_routes_geojson_cache = None
 
@@ -679,17 +712,23 @@ class NavDataStore:
                 return candidate
         return None
 
-    def resolve_route_tokens(self, tokens: List[str]) -> Tuple[List[List[float]], Dict[str, List[float]], List[str], List[Dict[str, object]]]:
+    def resolve_route_tokens(
+        self, tokens: List[str]
+    ) -> Tuple[List[List[float]], Dict[str, List[float]], List[str], List[Dict[str, object]], List[Optional[str]]]:
         """Resolve a route-string token list (fix/airway/DCT/SID/STAR, whitespace-split)
         into a coordinate path + the set of named fixes actually passed through +
         a list of "WAYPOINT AIRWAY WAYPOINT" legs where the named airway doesn't
         actually connect those two fixes (silently falls back to a direct line) +
-        per-leg label anchors (airway/procedure name + midpoint) for map display.
+        per-leg label anchors (airway/procedure name + midpoint) for map display +
+        a fix name per coordinate point (None where the point came from a SID/STAR
+        procedure — NAVDATA의 그 구간 Fix 컬럼은 안 쓰고 있어서 이름이 없음; 국경
+        통과 지점을 표시할 때 정확한 이름이 없으면 좌표로 대체함).
 
         Shared by both stored Navblue routes (_resolve_geometries) and the ad-hoc
         "type a route string" feature — same parsing rules either way.
         """
         raw: List[List[float]] = []
+        names: List[Optional[str]] = []
         passed_fixes: Dict[str, List[float]] = {}
         airway_gaps: List[str] = []
         # (항로명, raw 시작 인덱스, raw 끝 인덱스) — 좌표값을 바로 담지 않고 인덱스만
@@ -698,7 +737,7 @@ class NavDataStore:
         # 어긋나 라벨이 지구 반대편처럼 동떨어진 곳에 찍히는 문제가 있었음.
         leg_spans: List[Tuple[str, int, int]] = []
         if not tokens:
-            return raw, passed_fixes, airway_gaps, []
+            return raw, passed_fixes, airway_gaps, [], names
 
         # Pre-compute max allowable single-leg distance:
         # use 1.5× the direct OD distance, with a floor of 2000 km
@@ -715,6 +754,7 @@ class NavDataStore:
         ref_name: Optional[str] = tokens[0] if origin_cands else None
         if ref is not None:
             raw.append(ref[:])
+            names.append(tokens[0])
             passed_fixes[tokens[0]] = ref[:]
 
         # ICAO route strings alternate FIX, CONNECTOR(airway/DCT), FIX, CONNECTOR, ...
@@ -747,6 +787,7 @@ class NavDataStore:
                 if pts is not None:
                     start_idx = len(raw) - 1 if ref is not None else len(raw)
                     raw.extend(pts)
+                    names.extend([None] * len(pts))
                     if pts:
                         leg_spans.append((token, start_idx, len(raw) - 1))
                         ref = pts[-1][:]
@@ -768,6 +809,7 @@ class NavDataStore:
             if proc_pts is not None:
                 start_idx = len(raw) - 1 if ref is not None else len(raw)
                 raw.extend(proc_pts)
+                names.extend([None] * len(proc_pts))
                 leg_spans.append((token, start_idx, len(raw) - 1))
                 ref = proc_pts[-1][:]
                 ref_name = None
@@ -787,6 +829,7 @@ class NavDataStore:
                 # the token entirely.
                 start_idx = len(raw) - 1 if ref is not None else len(raw)
                 raw.extend(pts)
+                names.extend([None] * len(pts))
                 leg_spans.append((token, start_idx, len(raw) - 1))
                 ref = pts[-1][:]
                 ref_name = None
@@ -818,6 +861,7 @@ class NavDataStore:
             leg_start_idx = len(raw) - 1 if ref is not None else len(raw)
             if expanded and len(expanded) > 2:
                 raw.extend([[f.lon, f.lat] for f in expanded[1:]])
+                names.extend([f.fix for f in expanded[1:]])
                 ref = [expanded[-1].lon, expanded[-1].lat]
                 passed_fixes.update({f.fix: [f.lon, f.lat] for f in expanded})
                 leg_spans.append((pending_airway, leg_start_idx, len(raw) - 1))
@@ -826,6 +870,7 @@ class NavDataStore:
                     # 항공로 이름은 유효하지만 이 두 fix를 실제로 잇지는 않음 — 직선으로 대체됨
                     airway_gaps.append(f"{ref_name} {pending_airway} {token}")
                 raw.append(chosen[:])
+                names.append(token)
                 ref = chosen
                 passed_fixes[token] = chosen[:]
                 leg_spans.append((pending_airway or "DCT", leg_start_idx, len(raw) - 1))
@@ -839,11 +884,11 @@ class NavDataStore:
             for label, start, end in leg_spans
             if end > start
         ]
-        return fixed, passed_fixes, airway_gaps, legs
+        return fixed, passed_fixes, airway_gaps, legs, names
 
     def _resolve_geometries(self) -> None:
         for route in self.routes:
-            route.coordinates, route.passed_fixes, _, route.legs = self.resolve_route_tokens(route.tokens)
+            route.coordinates, route.passed_fixes, _, route.legs, route.point_names = self.resolve_route_tokens(route.tokens)
             if route.coordinates:
                 lons = [c[0] for c in route.coordinates]
                 lats = [c[1] for c in route.coordinates]
@@ -896,6 +941,61 @@ class NavDataStore:
                 matched.append(route.id)
         self._fir_route_cache[icao] = matched
         return matched
+
+    def _country_at(self, lon: float, lat: float) -> Optional[str]:
+        """이 좌표가 속한 나라 이름(Natural Earth 영문명), 어느 나라에도 없으면(공해 등) None.
+        같은 fix를 여러 항로가 공유하는 경우가 많아 좌표별로 결과를 캐싱함."""
+        key = (round(lon, 4), round(lat, 4))
+        cached = self._country_at_cache.get(key, "")
+        if cached != "":
+            return cached  # type: ignore[return-value]
+        result = None
+        for (minlon, minlat, maxlon, maxlat), name, geometry in self.country_candidates:
+            if lon < minlon or lon > maxlon or lat < minlat or lat > maxlat:
+                continue
+            if _point_in_geometry(lon, lat, geometry):
+                result = name
+                break
+        self._country_at_cache[key] = result
+        return result
+
+    def get_country_crossings(self, route: Route) -> List[Dict[str, str]]:
+        """이 항로가 지나는 나라별 진입/이탈 지점 — route.coordinates를 순서대로
+        훑다가 나라가 바뀌는 지점을 국경 통과로 봄. 진입/이탈 지점은 국경선 위의
+        정확한 좌표가 아니라, 그 순간 실제로 지나가는 가장 가까운 fix(이름이 없으면
+        좌표)로 근사함 — fix 간격이 보통 수십~수백 km라 국경선 자체의 정밀 좌표는
+        아니지만, 항로가 이미 실제 지나가는 지점들의 나열이라 이 이상의 정밀도는
+        항로 데이터 자체의 밀도로 제한됨.
+        바다 위 등 어느 나라에도 속하지 않는 구간은 그냥 건너뜀(나라로 집계 안 함)."""
+        cached = self._country_crossing_cache.get(route.id)
+        if cached is not None:
+            return cached
+
+        def label(idx: int) -> str:
+            name = route.point_names[idx] if idx < len(route.point_names) else None
+            if name:
+                return name
+            lon, lat = route.coordinates[idx]
+            ns = 'N' if lat >= 0 else 'S'
+            ew = 'E' if lon >= 0 else 'W'
+            return f"{abs(lat):.2f}°{ns} {abs(lon):.2f}°{ew}"
+
+        segments: List[Dict[str, str]] = []
+        prev_country: Optional[str] = None
+        prev_idx = 0
+        for i, (lon, lat) in enumerate(route.coordinates):
+            country = self._country_at(lon, lat)
+            if country != prev_country:
+                if prev_country is not None and segments and segments[-1]["country"] == prev_country and not segments[-1]["exit"]:
+                    segments[-1]["exit"] = label(prev_idx)
+                if country is not None:
+                    segments.append({"country": country, "entry": label(i), "exit": ""})
+            prev_country = country
+            prev_idx = i
+        if segments and not segments[-1]["exit"]:
+            segments[-1]["exit"] = label(prev_idx)
+        self._country_crossing_cache[route.id] = segments
+        return segments
 
     def get_routes(
         self,

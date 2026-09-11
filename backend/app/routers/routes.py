@@ -79,6 +79,14 @@ def route_geometry(
     return result
 
 
+@router.get("/countries")
+def route_countries(ids: str = Query(..., description="Comma-separated route IDs")):
+    """항로별 통과 국가 진입/이탈 지점 — CSV 내보내기(국가별 컬럼) 전용."""
+    id_list = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+    routes = store.get_routes(ids=id_list)
+    return {str(r.id): store.get_country_crossings(r) for r in routes}
+
+
 @router.get("/alternatives")
 def get_alternatives(
     od_pairs: str = Query(..., description="Comma-separated ORIGIN-DEST pairs, e.g. RKSI-RCTP,RKSI-RJTT"),
@@ -107,7 +115,7 @@ def get_alternatives(
 def parse_route_string(route: str = Query(..., description="공백으로 구분된 항로 문자열, 예: RKSI Y711 GTC DCT RKSS")):
     """SkyVector처럼 직접 입력한 항로 문자열을 그 자리에서 파싱해 geometry로 반환 (저장된 항로 DB 조회 아님)."""
     tokens = route.strip().upper().split()
-    coords, passed_fixes, airway_gaps, legs = store.resolve_route_tokens(tokens)
+    coords, passed_fixes, airway_gaps, legs, _ = store.resolve_route_tokens(tokens)
     if len(coords) < 2:
         return {"type": "FeatureCollection", "features": [], "unresolved": tokens, "airway_gaps": []}
     resolved_names = set(passed_fixes) | {tokens[0], tokens[-1]}
