@@ -33,6 +33,14 @@ function classifyToken(token: string, t: WeatherThresholds): 0 | 2 | 3 {
     if (vis < t.vis_caution_m) return 2
     return 0
   }
+  // 방향별 최단시정 (예: "3000 1200E" — 주시정과 별도로 특정 방향의 시정이 더 낮을 때 붙음)
+  const dirVis = token.match(/^(\d{4})(N|NE|E|SE|S|SW|W|NW)$/)
+  if (dirVis) {
+    const vis = parseInt(dirVis[1])
+    if (vis < t.vis_severe_m) return 3
+    if (vis < t.vis_caution_m) return 2
+    return 0
+  }
   // SM visibility (US; M prefix = "less than")
   if (/^M?(\d+\/\d+|\d+)SM$/.test(token) || token === 'P6SM') {
     if (token.startsWith('M')) return 3

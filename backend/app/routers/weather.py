@@ -55,6 +55,17 @@ def _classify_category(vis_m: Optional[int], ceiling_ft: Optional[int]) -> str:
     return "VFR"
 
 
+# ICAO 방향별 최단시정 표기 — "3000 1200E"처럼 주시정 뒤에 특정 방향(N/NE/E/SE/S/SW/W/NW)의
+# 시정이 별도로 붙는 경우가 있는데, aviationweather.gov의 구조화 필드(visib)는 주시정만
+# 담고 있어서 이 값이 통째로 누락됨. 원문에서 직접 찾아서 더 낮은 쪽(=더 위험한 쪽)을 취함.
+_DIR_VIS_RE = re.compile(r"^(\d{4})(N|NE|E|SE|S|SW|W|NW)$")
+
+
+def _min_directional_vis_m(raw_text: str) -> Optional[int]:
+    vals = [int(m.group(1)) for tok in (raw_text or "").split() if (m := _DIR_VIS_RE.match(tok))]
+    return min(vals) if vals else None
+
+
 def _classify_level(flt_cat: str, wx_string: str, gust_kt: Optional[float]) -> int:
     has_ts = "TS" in (wx_string or "")
     gust = gust_kt or 0
@@ -90,6 +101,10 @@ def _parse_metar(raw: dict) -> dict:
         vis_m = round(vis_sm * _STATUTE_MILE_M) if vis_sm is not None else None
     except (TypeError, ValueError):
         vis_m = None
+
+    dir_vis_m = _min_directional_vis_m(raw.get("rawOb") or "")
+    if dir_vis_m is not None and (vis_m is None or dir_vis_m < vis_m):
+        vis_m = dir_vis_m
 
     ceiling_ft = None
     for i in range(1, 4):
@@ -220,6 +235,11 @@ def _cond_from_tokens(tokens: list[str]) -> dict:
             continue
         if vis_m is None and re.match(r"^\d{4}$", t) and 0 <= int(t) <= 9999:
             vis_m = int(t)
+            continue
+        dm = _DIR_VIS_RE.match(t)
+        if dm:
+            dv = int(dm.group(1))
+            vis_m = dv if vis_m is None else min(vis_m, dv)
             continue
         if vis_m is None:
             # 미국식 SM(statute mile) 표기 — P6SM(6마일 초과), M1/4SM(1/4마일 미만),
