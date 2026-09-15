@@ -240,7 +240,9 @@ export default function RoutePanel() {
   // 교체) — Ctrl/Cmd를 누른 채 클릭해야 복수 선택으로 추가/제거됨.
   function selectRoute(id: number, multi: boolean) {
     if (multi) dispatch({ type: 'TOGGLE_SELECTED_ROUTE', payload: id })
-    else dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
+    else if (state.selectedRouteIds.length === 1 && state.selectedRouteIds[0] === id) {
+      dispatch({ type: 'SET_SELECTED_ROUTES', payload: [] })
+    } else dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
   }
 
   async function exportCsv() {
@@ -292,7 +294,10 @@ export default function RoutePanel() {
           <select
             className="flex-1 bg-gray-800 border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none"
             value={state.origin}
-            onChange={e => dispatch({ type: 'SET_ORIGIN', payload: e.target.value })}
+            onChange={e => {
+              dispatch({ type: 'SET_ORIGIN', payload: e.target.value })
+              dispatch({ type: 'SET_SELECTED_AIRPORT', payload: null })
+            }}
           >
             <option value="">출발지 선택</option>
             {origins.map(o => <option key={o} value={o}>{o}</option>)}
@@ -303,7 +308,10 @@ export default function RoutePanel() {
           <select
             className="flex-1 bg-gray-800 border border-gray-600 text-white text-xs rounded px-2 py-1.5 outline-none"
             value={state.destination}
-            onChange={e => dispatch({ type: 'SET_DESTINATION', payload: e.target.value })}
+            onChange={e => {
+              dispatch({ type: 'SET_DESTINATION', payload: e.target.value })
+              dispatch({ type: 'SET_SELECTED_AIRPORT', payload: null })
+            }}
           >
             <option value="">도착지 선택</option>
             {destinations.map(d => <option key={d} value={d}>{d}</option>)}
