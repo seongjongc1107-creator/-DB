@@ -201,7 +201,7 @@ async def get_fpl_route(ams_rec_pk: int = Query(...)):
 
     tokens = [dep_icao, *route_tokens, dest_icao]
     try:
-        coords, passed_fixes, airway_gaps, legs = store.resolve_route_tokens(tokens)
+        coords, passed_fixes, airway_gaps, legs, _ = store.resolve_route_tokens(tokens)
     except Exception as e:
         return {"error": f"항로 해석 실패: {e}", "route_raw": raw}
 
@@ -459,7 +459,7 @@ def _route_distance_nm(route: str) -> Optional[int]:
     if len(tokens) < 2:
         return None
     try:
-        coords, _, _, _ = store.resolve_route_tokens(tokens)
+        coords, _, _, _, _ = store.resolve_route_tokens(tokens)
     except Exception:
         return None
     if len(coords) < 2:
@@ -674,7 +674,7 @@ async def fpl_waypoint_search(
         if route not in fix_set_cache:
             tokens = route.split()
             try:
-                _, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
+                _, passed_fixes, _, _, _ = store.resolve_route_tokens(tokens)
             except Exception:
                 fix_set_cache[route] = set(tokens)
             else:
@@ -752,7 +752,7 @@ async def _build_reroute_recommendations(constrained_flights: list[dict], divers
         if route not in fix_set_cache:
             tokens = route.split()
             try:
-                _, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
+                _, passed_fixes, _, _, _ = store.resolve_route_tokens(tokens)
             except Exception:
                 fix_set_cache[route] = set(tokens)
             else:
@@ -847,7 +847,7 @@ async def _run_scenario_query(
                 continue
             tokens = [dep_icao, *result["route_tokens"], dest_icao]
             try:
-                _, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
+                _, passed_fixes, _, _, _ = store.resolve_route_tokens(tokens)
             except Exception:
                 continue
             fix_set = set(passed_fixes) | set(tokens)
@@ -1200,7 +1200,7 @@ async def infer_diversion(
         if route not in resolve_cache:
             tokens = route.split()
             try:
-                raw, passed_fixes, _, _ = store.resolve_route_tokens(tokens)
+                raw, passed_fixes, _, _, _ = store.resolve_route_tokens(tokens)
             except Exception:
                 raw, passed_fixes = [], {}
             resolve_cache[route] = (raw, passed_fixes)
