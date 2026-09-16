@@ -42,6 +42,10 @@ export const api = {
   },
   traffic: {
     fetch: () => get<{ aircraft: AircraftState[]; count: number; jja_count: number; updated: number; error?: string; cached?: boolean }>('/traffic/'),
+    activeRunway: (icao: string) =>
+      get<{ icao: string; runways: { id: string; count: number; callsigns: string[] }[]; updated?: number; note?: string }>(
+        `/traffic/active-runway/${encodeURIComponent(icao)}`,
+      ),
   },
   curfew: {
     list: () => get<{ count: number; curfews: CurfewInfo[] }>('/curfew/'),

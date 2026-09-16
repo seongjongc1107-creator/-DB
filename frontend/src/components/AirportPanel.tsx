@@ -3,16 +3,36 @@ import { X, RefreshCw, SlidersHorizontal, Moon, TrendingUp, Route, Loader2 } fro
 import { useApp } from '../AppContext'
 import type { AirportTab, ApproachProc, CurfewInfo, FoisFlight, RunwayInfo, WeatherLevel, WeatherThresholds } from '../types'
 import { api } from '../api/client'
-import { classifyLevel, getThresholds, highlightSegments, type TextSegment } from '../lib/weatherClassify'
+import { getThresholds, highlightSegments, type TextSegment } from '../lib/weatherClassify'
 import { airlineColor } from '../lib/airlineColors'
 import WeatherTrendModal from './WeatherTrendModal'
 
 // ── shared helpers ──────────────────────────────────────────────────────────
 
 const LEVEL_CONFIG: Record<WeatherLevel, { label: string; color: string; bg: string; dot: string }> = {
-  1: { label: '양호',  color: 'text-green-400', bg: 'bg-green-900/40 border-green-700', dot: 'bg-green-400' },
-  2: { label: '주의',  color: 'text-amber-400', bg: 'bg-amber-900/40 border-amber-600', dot: 'bg-amber-400' },
-  3: { label: '심각',  color: 'text-red-400',   bg: 'bg-red-900/40 border-red-600',     dot: 'bg-red-400'   },
+  1: { label: '양호',   color: 'text-green-400',  bg: 'bg-green-900/40 border-green-700',   dot: 'bg-green-400'  },
+  2: { label: '주의I',  color: 'text-amber-400',  bg: 'bg-amber-900/40 border-amber-600',   dot: 'bg-amber-400'  },
+  3: { label: '주의II', color: 'text-orange-400', bg: 'bg-orange-900/40 border-orange-600', dot: 'bg-orange-400' },
+  4: { label: '경고',   color: 'text-red-400',    bg: 'bg-red-900/40 border-red-600',       dot: 'bg-red-400'    },
+}
+
+// 맞바람이 가장 큰 활주로를 "현재 사용 중"으로 가정 — 실제 ATC 배정(노이즈 절차,
+// 병렬 활주로 관행 등)과 다를 수 있는 추정치. 백엔드 wx_minima.py::_best_runway_wind와
+// 동일한 공식(헤딩 대비 코사인/사인 성분)을 그대로 따름.
+function estimateActiveRunway(
+  runways: RunwayInfo[],
+  windDir: number | null,
+  windKt: number | null,
+): { id: string; headwind: number; crosswind: number } | null {
+  if (runways.length === 0 || windDir == null || windKt == null || windKt === 0) return null
+  let best: { id: string; headwind: number; crosswind: number } | null = null
+  for (const r of runways) {
+    const angle = (windDir - r.bearing_m) * (Math.PI / 180)
+    const headwind = windKt * Math.cos(angle)
+    const crosswind = Math.abs(windKt * Math.sin(angle))
+    if (!best || headwind > best.headwind) best = { id: r.id.replace('RW', ''), headwind, crosswind }
+  }
+  return best
 }
 
 const TABS: { id: AirportTab; label: string }[] = [
@@ -349,6 +369,23 @@ export default function AirportPanel() {
   const { state, dispatch } = useApp()
   const [trendOpen, setTrendOpen] = useState(false)
 
+  // 실시간 ADS-B(OpenSky) 기준 사용 활주로 — 공항이 바뀔 때마다 새로 조회.
+  // 바람 기반 추정(estimateActiveRunway)은 이게 비어있을 때만 폴백으로 보여줌.
+  const [liveRunway, setLiveRunway] = useState<{ id: string; count: number; callsigns: string[] }[] | null>(null)
+  const [liveRunwayLoading, setLiveRunwayLoading] = useState(false)
+  useEffect(() => {
+    const currentIcao = state.selectedAirportIcao
+    setLiveRunway(null)
+    if (!currentIcao) return
+    let cancelled = false
+    setLiveRunwayLoading(true)
+    api.traffic.activeRunway(currentIcao)
+      .then(res => { if (!cancelled) setLiveRunway(res.runways) })
+      .catch(() => { if (!cancelled) setLiveRunway([]) })
+      .finally(() => { if (!cancelled) setLiveRunwayLoading(false) })
+    return () => { cancelled = true }
+  }, [state.selectedAirportIcao])
+
   const icao = state.selectedAirportIcao
   if (!icao) return null
   const icaoStr: string = icao
@@ -360,11 +397,10 @@ export default function AirportPanel() {
   const thresholds = getThresholds(state.weatherConfig, icaoStr)
   const hasAirportOverride = Boolean(state.weatherConfig.airports[icaoStr])
 
-  const levelFromData: WeatherLevel = weatherData ? classifyLevel(weatherData, thresholds) : 1
-  const maxTokenLevel = weatherData
-    ? highlightSegments(weatherData.raw || '', thresholds).reduce((m, s) => Math.max(m, s.level), 0)
-    : 0
-  const level: WeatherLevel = Math.max(levelFromData, maxTokenLevel) as WeatherLevel
+  // 판정(양호/주의I/주의II/경고)은 백엔드가 확정 — 공항별 L/D MINIMUM, 활주로 방향
+  // 기반 측풍/배풍 등 이 화면이 갖고 있지 않은 데이터로 계산되므로 그대로 받아씀.
+  // thresholds/highlightSegments는 원문 텍스트 하이라이트(색칠)에만 여전히 사용함.
+  const level: WeatherLevel = weatherData?.level ?? 1
   const cfg = weatherData ? LEVEL_CONFIG[level] : null
 
   function close() { dispatch({ type: 'SET_SELECTED_AIRPORT', payload: null }) }
@@ -385,7 +421,7 @@ export default function AirportPanel() {
 
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800">
-        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${cfg?.dot ?? 'bg-gray-600'} ${level === 3 ? 'animate-pulse' : ''}`} />
+        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${cfg?.dot ?? 'bg-gray-600'} ${level === 4 ? 'animate-pulse' : ''}`} />
         <div className="flex-1 min-w-0">
           <span className="text-sm font-bold text-white">{icaoStr}</span>
           {detail?.name && (
@@ -408,6 +444,11 @@ export default function AirportPanel() {
           )}
           {detail?.elevation_ft !== undefined && (
             <span className="ml-2 text-[10px] text-gray-500 font-mono">{detail.elevation_ft}ft</span>
+          )}
+          {weatherData && level > 1 && weatherData.level_reason && (
+            <div className="text-[10px] text-gray-500 mt-0.5 truncate" title={weatherData.level_reason}>
+              {weatherData.level_reason}
+            </div>
           )}
         </div>
         {tab === 'weather' && (
@@ -475,6 +516,39 @@ export default function AirportPanel() {
                     className="text-[11px] font-mono text-gray-300 leading-relaxed whitespace-nowrap"
                   />
                 </div>
+                {liveRunwayLoading ? (
+                  <p className="text-[10px] text-gray-600 px-1">실시간 활주로 확인 중...</p>
+                ) : liveRunway && liveRunway.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] bg-gray-950 rounded-lg px-3 py-1.5">
+                    <span className="text-gray-500">현재 사용 활주로(실시간 ADS-B)</span>
+                    {liveRunway.map(r => (
+                      <span key={r.id} className="flex items-center gap-1">
+                        <span className="font-mono font-bold text-white">RWY {r.id}</span>
+                        <span
+                          className="text-gray-500"
+                          title={r.callsigns.join(', ')}
+                        >
+                          ({r.count}대{r.callsigns.length > 0 ? ` · ${r.callsigns.slice(0, 2).join(', ')}` : ''})
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                ) : (() => {
+                  const activeRwy = estimateActiveRunway(detail?.runways ?? [], weatherData.wind_dir, weatherData.wind_kt)
+                  return activeRwy ? (
+                    <div className="flex items-center gap-2 text-[11px] bg-gray-950 rounded-lg px-3 py-1.5">
+                      <span className="text-gray-500">현재 사용 활주로(바람 기준 추정 — 실시간 항적 없음)</span>
+                      <span className="font-mono font-bold text-white">RWY {activeRwy.id}</span>
+                      <span className="text-gray-500">
+                        정풍 {activeRwy.headwind.toFixed(0)}kt · 측풍 {activeRwy.crosswind.toFixed(0)}kt
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-gray-600 px-1">
+                      활주로 추정 불가 (실시간 항적 없음, 무풍·가변풍 또는 활주로 정보 없음)
+                    </p>
+                  )
+                })()}
                 {weatherData.taf_raw && (
                   <details className="group">
                     <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-300 select-none">

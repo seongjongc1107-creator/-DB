@@ -25,6 +25,8 @@ def get_airport_info(icao: str):
             "width_ft": r.width_ft,
             "elevation_ft": r.elevation_ft,
             "threshold_disp_ft": r.threshold_disp_ft,
+            "lat": r.lat,
+            "lon": r.lon,
         }
         for r in sorted(store.runways.get(icao, []), key=lambda r: r.id)
     ]

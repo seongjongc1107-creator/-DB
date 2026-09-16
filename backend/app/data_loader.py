@@ -58,6 +58,8 @@ class RunwayInfo:
     width_ft: int
     elevation_ft: float
     threshold_disp_ft: int = 0
+    lat: Optional[float] = None   # 활주로 임계점(threshold) 좌표 — 실시간 ADS-B 매칭용
+    lon: Optional[float] = None
 
 
 @dataclass
@@ -522,6 +524,8 @@ class NavDataStore:
                 width_ft=width,
                 elevation_ft=elev,
                 threshold_disp_ft=disp,
+                lat=_parse_dms(row.get('Latitude', '')),
+                lon=_parse_dms(row.get('Longitude', '')),
             ))
 
     def _parse_ils(self, text: str) -> None:

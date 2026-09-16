@@ -1,14 +1,16 @@
-export type WeatherLevel = 1 | 2 | 3
+export type WeatherLevel = 1 | 2 | 3 | 4
 
 export interface MetarData {
   icao: string
   raw: string
   taf_raw: string | null
   level: WeatherLevel
+  level_reason: string
   flight_category: string
   vis_m: number | null
   ceiling_ft: number | null
   wind_kt: number | null
+  wind_dir: number | null
   gust_kt: number | null
   weather: string[]
   temp_c: number | null
@@ -157,6 +159,8 @@ export interface RunwayInfo {
   width_ft: number
   elevation_ft: number
   threshold_disp_ft: number
+  lat: number | null
+  lon: number | null
 }
 
 export interface ILSInfo {
