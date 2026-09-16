@@ -152,17 +152,30 @@ def _cleanup_dir_best_effort(path: Path, attempts: int = 3, delay: float = 1.0) 
 
 def _swap_dir(new_dir: Path, target_dir: Path) -> None:
     """target_dir을 new_dir 내용으로 교체 — 가능하면 rename(원자적)으로,
-    안 되면 rmtree+copytree로 폴백."""
+    안 되면 rmtree 후 rename. 완전히 교체하지 못했으면(예: Windows에서 이전
+    프로세스가 아직 파일을 붙잡고 있어 삭제가 안 되는 경우) 절대 성공으로
+    보고하면 안 된다 — 예전엔 여기서 실패를 삼키고 copytree(dirs_exist_ok=True)로
+    "병합"해버려서, 새 index.html은 들어가도 옛 index-*.js 번들은 안 지워진 채
+    남아 호출부가 무조건 성공(current_static_commit 갱신)으로 기록하는 버그가
+    있었다 — 그 결과 옛 번들이 계속 서빙되는데도 관리자 페이지엔 최신 커밋이
+    적용됐다고 표시됐다. 지금은 완전 교체 못 하면 예외를 던져서 호출부
+    (check_and_apply_update)가 실패로 기록하고 다음 체크 때 재시도하게 한다."""
     if target_dir.exists():
         backup = target_dir.parent / f"{target_dir.name}_old_{int(time.time())}"
         try:
             target_dir.rename(backup)
         except Exception:
             _cleanup_dir_best_effort(target_dir, attempts=5, delay=2.0)
+            if target_dir.exists():
+                raise RuntimeError(
+                    f"{target_dir} 교체 실패 — 다른 프로세스가 파일을 사용 중일 수 있음"
+                )
             backup = None
         try:
             new_dir.rename(target_dir)
         except Exception:
+            if target_dir.exists():
+                raise RuntimeError(f"{target_dir} 로 새 정적 파일 교체 실패")
             shutil.copytree(new_dir, target_dir, dirs_exist_ok=True)
             _cleanup_dir_best_effort(new_dir)
         if backup is not None:
