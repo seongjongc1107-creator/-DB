@@ -40,9 +40,22 @@ export default function WeatherAlertToast() {
     return set
   }, [airportCoord, typhoonCircles])
 
-  const alerts = typhoonOnly
-    ? state.weatherAlerts.filter(a => inTyphoonZone.has(a.icao))
-    : state.weatherAlerts
+  const activeAirportSet = useMemo(() => new Set(state.activeFoisAirports), [state.activeFoisAirports])
+
+  const alerts = useMemo(() => {
+    const base = typhoonOnly
+      ? state.weatherAlerts.filter(a => inTyphoonZone.has(a.icao))
+      : state.weatherAlerts
+    // 최근 30일 FOIS 제출 이력에 실제 등장한(=지금 우리가 실제로 쓰는) 공항의
+    // 알림을 위로 — 모니터링 대상 자체를 좁히는 게 아니라 정렬/강조만 바꿈
+    // (신규 취항 공항도 여기 없다고 알림이 빠지는 게 아니라 그냥 강조만 덜 될 뿐).
+    // .sort는 안정 정렬(stable)이라 각 그룹 내부의 기존 순서(최신순)는 유지됨.
+    return [...base].sort((a, b) => {
+      const aActive = activeAirportSet.has(a.icao) ? 0 : 1
+      const bActive = activeAirportSet.has(b.icao) ? 0 : 1
+      return aActive - bActive
+    })
+  }, [state.weatherAlerts, typhoonOnly, inTyphoonZone, activeAirportSet])
 
   function dismiss(id: string) {
     dispatch({ type: 'DISMISS_WEATHER_ALERT', payload: id })
@@ -88,10 +101,11 @@ export default function WeatherAlertToast() {
         {alerts.map(alert => {
           const s = LEVEL_STYLE[alert.level]
           const Icon = alert.level === 4 ? AlertOctagon : AlertTriangle
+          const isActive = activeAirportSet.has(alert.icao)
           return (
             <div
               key={alert.id}
-              className={`flex items-start gap-3 rounded-xl border ${s.border} ${s.bg} px-3.5 py-3 shadow-2xl backdrop-blur animate-in slide-in-from-right-4 duration-300 shrink-0`}
+              className={`flex items-start gap-3 rounded-xl border ${s.border} ${s.bg} px-3.5 py-3 shadow-2xl backdrop-blur animate-in slide-in-from-right-4 duration-300 shrink-0 ${isActive ? 'ring-1 ring-sky-400/70' : ''}`}
             >
               <Icon size={16} className={`${s.icon} mt-0.5 shrink-0`} />
               <div className="flex-1 min-w-0">
@@ -99,6 +113,14 @@ export default function WeatherAlertToast() {
                   <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border ${s.border} ${s.icon}`}>
                     {s.label}
                   </span>
+                  {isActive && (
+                    <span
+                      className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold border border-sky-400 text-sky-300"
+                      title="최근 30일 FOIS 제출 이력에 실제 등장한 공항"
+                    >
+                      실사용
+                    </span>
+                  )}
                   <span className="text-gray-400 font-normal">{alert.time}</span>
                 </div>
                 <p className="text-xs text-gray-200 mt-1 leading-snug break-all">{alert.message}</p>

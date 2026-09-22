@@ -83,6 +83,8 @@ export const api = {
     waypointSearch: (params: { waypoint: string; airline?: string; start?: string; end?: string }) =>
       get<FplWaypointSearchResult>('/fois/history/waypoint-search', params as Record<string, string>),
     countryList: () => get<{ countries: CountryInfo[] }>('/fois/country/list'),
+    activeAirports: (days = 30) =>
+      get<{ days: number; count: number; airports: string[] }>('/fois/history/active-airports', { days: String(days) }),
     scenarioQuery: (params: {
       country?: string; airport?: string; direction: 'dep' | 'arr'
       start: string; end: string; constrained: string; diversion?: string

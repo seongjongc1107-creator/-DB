@@ -633,6 +633,30 @@ async def fpl_history_stats(
     return {"start": start, "end": end, "count": len(rows), "groups": _fpl_stats(rows), "airlines": airlines}
 
 
+@router.get("/history/active-airports")
+async def get_active_airports(days: int = Query(30, ge=1, le=180)):
+    """최근 N일간 fpl_archive에 dep/arr로 실제 등장한 공항 ICAO 목록 — 기상
+    모니터링 대상을 좁히는 용도가 아니라(신규 취항 직후엔 여기 아직 안 잡혀서
+    narrow하면 오히려 그 시기 알림이 빠지는 사각지대가 생김) "지금 실제로 쓰는
+    공항"을 강조 표시하는 용도로만 씀. 전체 공항 모니터링은 그대로 유지하고
+    이 목록은 순수 하이라이트 신호."""
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    async with FplSessionLocal() as session:
+        result = await session.execute(
+            select(FplArchive.dep, FplArchive.arr).where(FplArchive.flight_date >= cutoff)
+        )
+        rows = result.all()
+
+    airports: set[str] = set()
+    for dep, arr in rows:
+        if dep:
+            airports.add(dep)
+        if arr:
+            airports.add(arr)
+
+    return {"days": days, "count": len(airports), "airports": sorted(airports)}
+
+
 @router.get("/history/waypoint-search")
 async def fpl_waypoint_search(
     waypoint: str = Query(..., description="검색할 waypoint/fix 이름, 쉼표로 여러 개 주면 전부 지나야 매칭(AND)"),

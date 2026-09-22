@@ -48,6 +48,10 @@ export default function App() {
         // 공항별 기상 임계값 기본값 — 관리자가 WX_Minima.csv를 새로 올려도
         // 재빌드 없이 반영되도록 런타임에 받아옴
         api.weather.minimaSeed().then(setAirportMinimaSeed).catch(() => {})
+        // 최근 30일 FOIS 제출 이력에 실제 등장한 공항 — 기상 알림 전체 대상을
+        // 좁히는 용도가 아니라(신규 취항 직후엔 여기 아직 안 잡힘) 그중 "지금
+        // 실제로 쓰는 공항"만 강조 표시하는 용도
+        api.fois.activeAirports().then(res => dispatch({ type: 'SET_ACTIVE_FOIS_AIRPORTS', payload: res.airports })).catch(() => {})
       } catch (e) {
         console.error('Failed to load initial data', e)
       } finally {

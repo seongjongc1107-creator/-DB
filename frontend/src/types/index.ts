@@ -655,6 +655,7 @@ export interface AppState {
   weatherData: Record<string, MetarData>
   weatherAlerts: WeatherAlert[]
   weatherAlertTyphoonOnly: boolean  // true면 태풍 반경과 겹치는 공항의 알림만 표출
+  activeFoisAirports: string[]  // 최근 N일 FOIS 제출 이력에 실제 등장한 공항(강조 표시용) — 모니터링 범위를 좁히는 데는 안 씀
   weatherLoading: boolean
   selectedAirportIcao: string | null
   weatherConfig: WeatherConfig
@@ -719,6 +720,7 @@ export type AppAction =
   | { type: 'ADD_WEATHER_ALERTS'; payload: WeatherAlert[] }
   | { type: 'DISMISS_WEATHER_ALERT'; payload: string }
   | { type: 'SET_WEATHER_ALERT_TYPHOON_ONLY'; payload: boolean }
+  | { type: 'SET_ACTIVE_FOIS_AIRPORTS'; payload: string[] }
   | { type: 'SET_WEATHER_LOADING'; payload: boolean }
   | { type: 'SET_SELECTED_AIRPORT'; payload: string | null }
   | { type: 'SET_WEATHER_CONFIG'; payload: WeatherConfig }

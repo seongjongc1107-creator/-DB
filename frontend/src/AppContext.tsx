@@ -61,6 +61,7 @@ const initialState: AppState = {
   weatherData: {},
   weatherAlerts: [],
   weatherAlertTyphoonOnly: false,
+  activeFoisAirports: [],
   weatherLoading: false,
   selectedAirportIcao: null,
   weatherConfig: loadConfig(),
@@ -257,6 +258,8 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, weatherAlerts: state.weatherAlerts.filter(a => a.id !== action.payload) }
     case 'SET_WEATHER_ALERT_TYPHOON_ONLY':
       return { ...state, weatherAlertTyphoonOnly: action.payload }
+    case 'SET_ACTIVE_FOIS_AIRPORTS':
+      return { ...state, activeFoisAirports: action.payload }
     case 'SET_WEATHER_LOADING':
       return { ...state, weatherLoading: action.payload }
     case 'SET_TRAFFIC_DATA':
