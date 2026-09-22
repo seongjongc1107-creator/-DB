@@ -24,6 +24,7 @@ from sqlalchemy import func, select, text
 
 from app.db import AsyncSessionLocal, make_upsert
 from app.models import MetarArchive
+from app.wx_minima import classify_metar_level
 from app.wx_minima import get_seed as get_minima_seed
 
 router = APIRouter()
@@ -64,16 +65,6 @@ _DIR_VIS_RE = re.compile(r"^(\d{4})(N|NE|E|SE|S|SW|W|NW)$")
 def _min_directional_vis_m(raw_text: str) -> Optional[int]:
     vals = [int(m.group(1)) for tok in (raw_text or "").split() if (m := _DIR_VIS_RE.match(tok))]
     return min(vals) if vals else None
-
-
-def _classify_level(flt_cat: str, wx_string: str, gust_kt: Optional[float]) -> int:
-    has_ts = "TS" in (wx_string or "")
-    gust = gust_kt or 0
-    if flt_cat == "LIFR" or has_ts or gust > 40:
-        return 3
-    if flt_cat in ("MVFR", "IFR") or gust > 25:
-        return 2
-    return 1
 
 
 def _parse_metar(raw: dict) -> dict:
@@ -135,18 +126,27 @@ def _parse_metar(raw: dict) -> dict:
     else:
         obs_time = str(obs_raw or "")
 
+    icao = raw.get("icaoId") or raw.get("stationId") or ""
+    weather_tokens = [w.strip() for w in wx_string.split() if w.strip()] if wx_string else []
+    level, level_reasons = classify_metar_level(
+        icao=icao, vis_m=vis_m, ceiling_ft=ceiling_ft,
+        wind_dir=wind_dir, wind_kt=wind_kt, gust_kt=gust_kt,
+        weather_tokens=weather_tokens, raw_text=raw.get("rawOb") or "",
+    )
+
     return {
-        "icao": raw.get("icaoId") or raw.get("stationId") or "",
+        "icao": icao,
         "raw": raw.get("rawOb") or "",
         "taf_raw": raw.get("rawTaf") or None,
-        "level": _classify_level(flt_cat, wx_string, gust_kt),
+        "level": level,
+        "level_reason": " / ".join(level_reasons),
         "flight_category": flt_cat,
         "vis_m": vis_m,
         "ceiling_ft": ceiling_ft,
         "wind_kt": wind_kt,
         "wind_dir": wind_dir,
         "gust_kt": gust_kt,
-        "weather": [w.strip() for w in wx_string.split() if w.strip()] if wx_string else [],
+        "weather": weather_tokens,
         "temp_c": temp_c,
         "dewpoint_c": dewp_c,
         "qnh_hpa": qnh_hpa,

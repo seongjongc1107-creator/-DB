@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BarChart3, Settings } from 'lucide-react'
+import { BarChart3, Settings, SlidersHorizontal } from 'lucide-react'
 import { api } from './api/client'
 import { useApp } from './AppContext'
 import { useWeatherMonitor } from './hooks/useWeatherMonitor'
@@ -89,6 +89,13 @@ export default function App() {
         <div className="absolute top-4 right-4 z-40 flex flex-col items-end gap-2">
           <div className="flex items-center gap-2">
             <AdHocRouteInput />
+            <button
+              onClick={() => setMinimumsOpen(true)}
+              title="공항 기상 최저치 관리"
+              className="flex items-center justify-center w-8 h-8 bg-gray-900/90 hover:bg-gray-800 border border-gray-700 hover:border-amber-600 text-gray-400 hover:text-amber-400 rounded-lg transition-all shadow-lg backdrop-blur shrink-0"
+            >
+              <SlidersHorizontal size={14} />
+            </button>
             <button
               onClick={() => setAdminOpen(true)}
               title="관리자"

@@ -4,12 +4,13 @@ import WeatherTrendModal from './WeatherTrendModal'
 import { useApp } from '../AppContext'
 import type { MetarData, WeatherLevel, WeatherThresholds } from '../types'
 import { api } from '../api/client'
-import { classifyLevel, getThresholds, highlightSegments, type TextSegment } from '../lib/weatherClassify'
+import { getThresholds, highlightSegments, type TextSegment } from '../lib/weatherClassify'
 
 const LEVEL_CONFIG: Record<WeatherLevel, { label: string; color: string; bg: string; dot: string }> = {
-  1: { label: '양호',  color: 'text-green-400', bg: 'bg-green-900/40 border-green-700', dot: 'bg-green-400' },
-  2: { label: '주의',  color: 'text-amber-400', bg: 'bg-amber-900/40 border-amber-600', dot: 'bg-amber-400' },
-  3: { label: '심각',  color: 'text-red-400',   bg: 'bg-red-900/40 border-red-600',     dot: 'bg-red-400'   },
+  1: { label: '양호',   color: 'text-green-400',  bg: 'bg-green-900/40 border-green-700',   dot: 'bg-green-400'  },
+  2: { label: '주의I',  color: 'text-amber-400',  bg: 'bg-amber-900/40 border-amber-600',   dot: 'bg-amber-400'  },
+  3: { label: '주의II', color: 'text-orange-400', bg: 'bg-orange-900/40 border-orange-600', dot: 'bg-orange-400' },
+  4: { label: '경고',   color: 'text-red-400',    bg: 'bg-red-900/40 border-red-600',       dot: 'bg-red-400'    },
 }
 
 function formatTaf(raw: string): string {
@@ -64,15 +65,10 @@ export default function MetarPanel() {
     }
   }
 
-  // Re-classify using user thresholds (may differ from backend's level)
+  // 판정은 백엔드가 확정 — thresholds/highlightSegments는 원문 하이라이트에만 씀
   const thresholds = getThresholds(state.weatherConfig, icaoStr)
   const hasAirportOverride = Boolean(state.weatherConfig.airports[icaoStr])
-  const levelFromData: WeatherLevel = data ? classifyLevel(data, thresholds) : 1
-  // Take max of parsed-data level and raw-token level so CB clouds etc. are reflected
-  const maxTokenLevel = data
-    ? highlightSegments(data.raw || '', thresholds).reduce((m, s) => Math.max(m, s.level), 0)
-    : 0
-  const level: WeatherLevel = Math.max(levelFromData, maxTokenLevel) as WeatherLevel
+  const level: WeatherLevel = data?.level ?? 1
   const cfg = data ? LEVEL_CONFIG[level] : null
 
   return (
@@ -80,7 +76,7 @@ export default function MetarPanel() {
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 w-max min-w-80 max-w-[90vw] bg-gray-900/95 backdrop-blur border border-gray-700 rounded-2xl shadow-2xl">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800">
-        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${cfg?.dot ?? 'bg-gray-600'} ${level === 3 ? 'animate-pulse' : ''}`} />
+        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${cfg?.dot ?? 'bg-gray-600'} ${level === 4 ? 'animate-pulse' : ''}`} />
         <div className="flex-1 min-w-0">
           <span className="text-sm font-bold text-white">{icaoStr}</span>
           {cfg && (

@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react'
 import { api } from '../api/client'
 import { useApp } from '../AppContext'
-import { explainLevel, getThresholds } from '../lib/weatherClassify'
 import type { WeatherAlert, WeatherLevel } from '../types'
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000  // 5분 (SPECI 대응)
 
 const LEVEL_LABEL: Record<WeatherLevel, string> = {
   1: '양호',
-  2: '주의',
-  3: '심각',
+  2: '주의I',
+  3: '주의II',
+  4: '경고',
 }
 
 // MVFR/IFR 같은 일반 카테고리가 아니라, 실제로 이 레벨을 유발한 METAR 원문
@@ -32,12 +32,11 @@ export function useWeatherMonitor(icaos: string[]) {
 
         const newAlerts: WeatherAlert[] = []
         for (const d of res.data) {
-          // Classify using user-defined thresholds for this airport — combines
-          // both classification paths (structured fields + raw-token parse)
-          // the same way MapView/AirportPanel do, so the toast never disagrees
-          // with what's shown on the map/panel for the same METAR.
-          const thresholds = getThresholds(state.weatherConfig, d.icao)
-          const { level, reason } = explainLevel(d, thresholds)
+          // 판정은 백엔드가 확정 — L/D MINIMUM(공항별 실제 착륙 최저치) + 활주로 방향
+          // 기반 측풍/배풍 등 프론트가 갖고 있지 않은 데이터로 계산되므로, 여기서
+          // 다시 계산하지 않고 그대로 받아씀 (지도/패널 배지와 항상 일치함).
+          const level = d.level
+          const reason = d.level_reason
           const prev = lastAlertedLevel.current[d.icao]
 
           if (level < 2) {

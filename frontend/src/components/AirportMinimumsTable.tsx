@@ -12,6 +12,11 @@ const SOURCE_LABEL: Record<Source, string> = { custom: '개별설정', seed: '�
 const COL_LABELS = ['시정 주의', '시정 심각', '운고 주의', '운고 심각', '돌풍 주의', '돌풍 심각']
 const COL_UNITS  = ['m', 'm', 'ft', 'ft', 'kt', 'kt']
 
+// 배지(양호/주의I/주의II/경고) 판정에 실제로 쓰이는 시정 구간 — L/D MINIMUM(=시정
+// 심각 컬럼과 같은 값) 기준 고정 버퍼(+800m/+1600m). 이 두 컬럼은 계산값이라
+// WeatherThresholds에 별도 필드로 없고, 표시할 때 vis_severe_m에서 바로 계산함.
+const BADGE_COL_LABELS = ['배지: 주의II 상한', '배지: 주의I 상한']
+
 function thresholdCells(t: WeatherThresholds) {
   return [
     t.vis_caution_m,
@@ -21,6 +26,10 @@ function thresholdCells(t: WeatherThresholds) {
     t.gust_caution_kt,
     t.gust_severe_kt,
   ]
+}
+
+function badgeVisCells(t: WeatherThresholds) {
+  return [t.vis_severe_m + 800, t.vis_severe_m + 1600]
 }
 
 type SortKey = 'icao' | 'status'
@@ -85,6 +94,8 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
             </h2>
             <p className="text-xs text-gray-500 mt-1">
               공항마다 기상 최저치(DH/MDA, RVR 등)가 다릅니다. 96개 공항은 실제 접근최저치 데이터로 자동 반영되어 있고, 필요하면 개별로 덮어쓸 수 있습니다.
+              오른쪽 주황색 두 컬럼은 지도/공항 패널 배지(양호/주의I/주의II/경고) 판정에 실제로 쓰이는 시정 구간 경계이며(시정 심각=L/D MINIMUM 기준 +800m/+1600m),
+              뇌우·강설·측풍/배풍 등 다른 조건이 있으면 시정과 무관하게 더 높은 단계로 올라갈 수 있습니다.
             </p>
             <div className="flex items-center gap-2 mt-2 text-xs">
               <span className="text-gray-400">전체 {allIcaos.length}개</span>
@@ -152,6 +163,12 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
                     <span className="text-gray-600 ml-1">{COL_UNITS[i]}</span>
                   </th>
                 ))}
+                {BADGE_COL_LABELS.map(label => (
+                  <th key={label} className="text-right px-3 py-2.5 font-semibold whitespace-nowrap border-l border-gray-800">
+                    <span className="text-orange-400">{label}</span>
+                    <span className="text-gray-600 ml-1">m</span>
+                  </th>
+                ))}
                 <th
                   className="text-center px-3 py-2.5 text-gray-400 font-semibold cursor-pointer hover:text-white select-none"
                   onClick={() => toggleSort('status')}
@@ -184,6 +201,11 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
                         </td>
                       )
                     })}
+                    {badgeVisCells(row.thresholds).map((v, i) => (
+                      <td key={i} className="px-3 py-2.5 text-right border-l border-gray-800/50">
+                        <span className="font-mono text-orange-300/80">{v.toLocaleString()}</span>
+                      </td>
+                    ))}
                     <td className="px-3 py-2.5 text-center">
                       {row.source === 'custom' ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-900/60 border border-blue-700 text-blue-300">
@@ -213,7 +235,7 @@ export default function AirportMinimumsTable({ onClose }: { onClose: () => void 
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-600">
+                  <td colSpan={11} className="px-4 py-8 text-center text-gray-600">
                     검색 결과 없음
                   </td>
                 </tr>

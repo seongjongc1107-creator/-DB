@@ -5,7 +5,6 @@ import Map, { Source, Layer, Marker, type MapRef, type MapLayerMouseEvent } from
 import 'maplibre-gl/dist/maplibre-gl.css'
 import * as turf from '@turf/turf'
 import { useApp } from '../AppContext'
-import { classifyLevel, getThresholds, highlightSegments } from '../lib/weatherClassify'
 import { SELECT_COLORS } from '../lib/selectionColors'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
@@ -568,12 +567,8 @@ export default function MapView() {
       features: src.features.map(f => {
         const icao = f.properties?.id as string | undefined
         const metar = icao ? state.weatherData[icao] : undefined
-        const thresholds = icao ? getThresholds(state.weatherConfig, icao) : undefined
-        const levelFromData = metar && thresholds ? classifyLevel(metar, thresholds) : 0
-        const maxTokenLevel = metar && thresholds
-          ? highlightSegments(metar.raw || '', thresholds).reduce((m, s) => Math.max(m, s.level), 0)
-          : 0
-        const level = Math.max(levelFromData, maxTokenLevel)
+        // 판정은 백엔드가 확정 (L/D MINIMUM + 활주로 방향 기반 측풍/배풍 등) — 그대로 받아씀
+        const level = metar?.level ?? 0
         const configured = icao ? Boolean(state.weatherConfig.airports[icao]) : false
         const hasCurfew = icao ? Boolean(state.curfews[icao]) : false
         return { ...f, properties: { ...f.properties, weatherLevel: level, configured, hasCurfew } }
@@ -1109,7 +1104,8 @@ export default function MapView() {
                 'match', ['get', 'weatherLevel'],
                 1, '#22C55E',
                 2, '#F59E0B',
-                3, '#EF4444',
+                3, '#F97316',
+                4, '#EF4444',
                 '#6B7280',
               ],
               // 개별 최저치 미설정 공항: stroke를 점선 느낌으로 표현 (opacity 차이)
@@ -1153,7 +1149,8 @@ export default function MapView() {
                 'match', ['get', 'weatherLevel'],
                 1, '#22C55E',
                 2, '#F59E0B',
-                3, '#EF4444',
+                3, '#F97316',
+                4, '#EF4444',
                 '#6B7280',
               ],
               'text-halo-color': '#fff',

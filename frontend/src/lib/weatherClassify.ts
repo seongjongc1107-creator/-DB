@@ -1,4 +1,4 @@
-import type { MetarData, WeatherConfig, WeatherLevel, WeatherThresholds } from '../types'
+import type { WeatherConfig, WeatherThresholds } from '../types'
 import { AIRPORT_MINIMA_SEED } from './airportMinimaSeed'
 
 export interface TextSegment {
@@ -126,66 +126,4 @@ export function saveConfig(config: WeatherConfig) {
 
 export function getThresholds(config: WeatherConfig, icao: string): WeatherThresholds {
   return config.airports[icao] ?? AIRPORT_MINIMA_SEED[icao] ?? config.defaults
-}
-
-/**
- * Classify weather level using user-defined thresholds.
- * Falls back to NOAA flight_category when raw values are unavailable.
- * TS in weather phenomena is always level 3 (non-negotiable safety rule).
- */
-export function classifyLevel(data: MetarData, thresholds: WeatherThresholds): WeatherLevel {
-  const hasTS = data.weather.some(w => TS_TOKEN_RE.test(w))
-  const gust = data.gust_kt ?? 0
-
-  // Level 3 hard checks
-  if (hasTS) return 3
-  if (gust > thresholds.gust_severe_kt) return 3
-  if (data.vis_m !== null && data.vis_m < thresholds.vis_severe_m) return 3
-  if (data.ceiling_ft !== null && data.ceiling_ft < thresholds.ceiling_severe_ft) return 3
-
-  // Level 2 checks
-  if (gust > thresholds.gust_caution_kt) return 2
-  if (data.vis_m !== null && data.vis_m < thresholds.vis_caution_m) return 2
-  if (data.ceiling_ft !== null && data.ceiling_ft < thresholds.ceiling_caution_ft) return 2
-
-  // Fallback to NOAA flight category when vis/ceiling not available
-  if (data.vis_m === null && data.ceiling_ft === null) {
-    if (data.flight_category === 'LIFR') return 3
-    if (data.flight_category === 'IFR' || data.flight_category === 'MVFR') return 2
-  }
-
-  return 1
-}
-
-export interface LevelExplanation {
-  level: WeatherLevel
-  reason: string
-}
-
-/**
- * classifyLevel/highlightSegments와 같은 로직으로 레벨을 계산하되, MVFR/IFR
- * 같은 일반 카테고리가 아니라 실제로 그 레벨을 유발한 METAR 원문 조각을 그대로
- * 근거로 반환함(토스트 알림에 "왜 떴는지"를 보여주기 위함).
- */
-export function explainLevel(data: MetarData, thresholds: WeatherThresholds): LevelExplanation {
-  const segments = highlightSegments(data.raw || '', thresholds)
-  const tokenLevel = segments.reduce((m, s) => Math.max(m, s.level), 0)
-  const dataLevel = classifyLevel(data, thresholds)
-  const level = Math.max(tokenLevel, dataLevel) as WeatherLevel
-
-  if (level === 1) return { level, reason: '' }
-
-  // 이 레벨을 유발한 원문 토큰들을 그대로 근거로 사용
-  const triggers = segments.filter(s => s.level === level).map(s => s.text)
-  if (triggers.length > 0) {
-    return { level, reason: triggers.join(' ') }
-  }
-
-  // 원문 토큰에서는 못 잡았지만 구조화 필드(classifyLevel)에서만 잡힌 경우
-  // (예: NOAA flight_category 폴백 — 실측 vis/ceiling 데이터 자체가 없는 관측)
-  const gust = data.gust_kt ?? 0
-  if (gust > thresholds.gust_caution_kt) return { level, reason: `돌풍 ${gust}kt` }
-  if (data.vis_m !== null && data.vis_m < thresholds.vis_caution_m) return { level, reason: `시정 ${data.vis_m}m` }
-  if (data.ceiling_ft !== null && data.ceiling_ft < thresholds.ceiling_caution_ft) return { level, reason: `운고 ${data.ceiling_ft}ft` }
-  return { level, reason: `${data.flight_category} (실측 시정/운고 데이터 없음)` }
 }

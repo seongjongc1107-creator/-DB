@@ -5,9 +5,10 @@ import { useApp } from '../AppContext'
 import type { WeatherLevel } from '../types'
 
 const LEVEL_STYLE: Record<WeatherLevel, { border: string; bg: string; icon: string; label: string }> = {
-  1: { border: 'border-green-500', bg: 'bg-green-950/90', icon: 'text-green-400', label: '양호' },
-  2: { border: 'border-amber-400', bg: 'bg-amber-950/90', icon: 'text-amber-400', label: '주의' },
-  3: { border: 'border-red-500',   bg: 'bg-red-950/90',   icon: 'text-red-400',   label: '심각' },
+  1: { border: 'border-green-500',  bg: 'bg-green-950/90',  icon: 'text-green-400',  label: '양호'   },
+  2: { border: 'border-amber-400',  bg: 'bg-amber-950/90',  icon: 'text-amber-400',  label: '주의I'  },
+  3: { border: 'border-orange-500', bg: 'bg-orange-950/90', icon: 'text-orange-400', label: '주의II' },
+  4: { border: 'border-red-500',    bg: 'bg-red-950/90',    icon: 'text-red-400',    label: '경고'   },
 }
 
 export default function WeatherAlertToast() {
@@ -86,7 +87,7 @@ export default function WeatherAlertToast() {
       <div className="pointer-events-auto overflow-y-auto flex flex-col gap-2 pr-1" style={{ scrollbarWidth: 'thin' }}>
         {alerts.map(alert => {
           const s = LEVEL_STYLE[alert.level]
-          const Icon = alert.level === 3 ? AlertOctagon : AlertTriangle
+          const Icon = alert.level === 4 ? AlertOctagon : AlertTriangle
           return (
             <div
               key={alert.id}
