@@ -295,10 +295,12 @@ export default function MapView() {
     if (id !== undefined) {
       const multi = e.originalEvent?.ctrlKey || e.originalEvent?.metaKey
       if (multi) dispatch({ type: 'TOGGLE_SELECTED_ROUTE', payload: id })
-      else dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
+      else if (state.selectedRouteIds.length === 1 && state.selectedRouteIds[0] === id) {
+        dispatch({ type: 'SET_SELECTED_ROUTES', payload: [] })
+      } else dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
       dispatch({ type: 'SET_SELECTED_AIRPORT', payload: null })
     }
-  }, [state.spatialMode, state.spatialPoints.length, state.weatherData, dispatch])
+  }, [state.spatialMode, state.spatialPoints.length, state.weatherData, state.selectedRouteIds, dispatch])
 
   const onMouseMove = useCallback((e: MapLayerMouseEvent) => {
     if (state.spatialMode === 'polygon') {
@@ -2075,7 +2077,9 @@ export default function MapView() {
                   onClick={e => {
                     const id = contextMenu.expanded!.id as number
                     if (e.ctrlKey || e.metaKey) dispatch({ type: 'TOGGLE_SELECTED_ROUTE', payload: id })
-                    else dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
+                    else if (state.selectedRouteIds.length === 1 && state.selectedRouteIds[0] === id) {
+                      dispatch({ type: 'SET_SELECTED_ROUTES', payload: [] })
+                    } else dispatch({ type: 'SET_SELECTED_ROUTES', payload: [id] })
                     setContextMenu(null)
                   }}
                   className="mt-2 w-full text-center bg-blue-700 hover:bg-blue-600 text-white rounded px-2 py-1 transition-colors"
