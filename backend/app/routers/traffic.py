@@ -30,18 +30,18 @@ _cache: dict = {'data': None, 'ts': 0.0}
 # 10초마다 이 엔드포인트를 폴링하고 있어서, OpenSky에 더 자주 요청을 보내는 게
 # 아니라 "이미 받아오던 걸 더 오래 들고 있기만" 하면 되는 구조.
 _HISTORY_WINDOW_SEC = 30 * 60
-# 순항고도 항적까지 다 쌓으면 메모리만 낭비되고 활주로 매칭엔 절대 안 걸리므로
-# (활주로 매칭은 AGL 1500ft 이하만 봄) 저장 단계에서 미리 크게 걸러냄 — 이
-# 지역에서 가장 높은 공항(표고)을 감안해도 충분히 넉넉한 상한.
-_HISTORY_ALT_CUTOFF_M = 2500
+# 지상(on_ground)에 있는 기체만 저장 — 활주로 매칭도 지상 기체만 쓰기로 했으므로
+# (아래 get_active_runway 설명 참고) 공중 항적은 애초에 저장할 필요가 없음.
 _history: list[tuple[float, list[dict]]] = []
 
 
 def _record_history(ts: float, aircraft: list[dict]) -> None:
+    # on_ground 기체는 altitude_m(기압고도)이 아예 None으로 오는 경우가 흔함
+    # (지상에선 ADS-B가 기압고도를 안 보내는 기체가 많음) — 매칭엔 고도가 필요
+    # 없으니 여기서 걸러내면 지상 기체 대부분이 통째로 빠지는 버그가 됨
     filtered = [
         a for a in aircraft
-        if a['heading'] is not None and a['altitude_m'] is not None
-        and (a['on_ground'] or a['altitude_m'] < _HISTORY_ALT_CUTOFF_M)
+        if a['on_ground'] and a['heading'] is not None
     ]
     _history.append((ts, filtered))
     cutoff = ts - _HISTORY_WINDOW_SEC
@@ -113,9 +113,17 @@ async def get_traffic():
 # 순간 스냅샷 하나만 보면 "우연히 그 찰나에 아무도 안 잡히면" 활주로가 비어
 # 보이는 문제가 있어서, 최근 30분 이력(_history) 전체를 훑어 판정함 — 같은
 # 기체가 여러 스냅샷에 걸쳐 잡혀도 icao24 기준으로 한 번만 셈.
+#
+# 지상(on_ground) 기체만 매칭 대상으로 씀 — 공중에 떠있는 파이널 어프로치 항적까지
+# 포함시켰더니, 평행활주로(예: RJFF 16L/16R, 임계점 간 거리 210m)에서 잘못된 쪽으로
+# 오배정되는 문제가 실제로 있었음. 두 활주로가 방향(heading)은 똑같고 거리도 멀리서
+# 보면 6km 반경 안에서 210m 차이는 거의 무의미해서, 아직 착륙 안 한 항적으로는
+# "가장 가까운 임계점" 판정이 사실상 도박에 가까움. 반면 실제로 활주로 위를 구르고
+# 있는(착륙 롤아웃/이륙활주) 기체는 GPS 위치가 그 활주로 중심선 위에 정확히 찍히므로
+# 210m 정도 떨어진 평행활주로와도 확실히 구분됨 — 그래서 "이미 내렸거나(롤아웃 중)
+# 이륙 활주 중인" 지상 기체만 보고, 아직 안 내린 어프로치 중 항적은 아예 안 봄.
 _NEAR_RUNWAY_KM = 6.0
 _HEADING_TOLERANCE_DEG = 30.0
-_MAX_AGL_FT_AIRBORNE = 1500.0
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -140,8 +148,6 @@ async def get_active_runway(icao: str):
         return {"icao": icao, "runways": [], "note": "활주로 좌표 정보 없음"}
 
     traffic = await get_traffic()  # 캐시 갱신 트리거 겸, _history에 최소 한 스냅샷은 보장
-    ap = store.airports.get(icao)
-    ap_elev_ft = (ap.elevation if ap else 0.0) or 0.0
 
     cutoff = time.time() - _HISTORY_WINDOW_SEC
     tally: dict[str, dict] = {}
@@ -149,8 +155,9 @@ async def get_active_runway(icao: str):
         if ts < cutoff:
             continue
         for a in aircraft:
-            agl_ft = a["altitude_m"] * 3.28084 - ap_elev_ft
-            if not a["on_ground"] and agl_ft > _MAX_AGL_FT_AIRBORNE:
+            # _record_history가 이미 on_ground만 걸러서 저장하지만, 과거 이력엔
+            # (배포 직후 등) 옛 필터로 쌓인 공중 항적이 남아있을 수 있어 한 번 더 확인
+            if not a["on_ground"]:
                 continue
 
             best: Optional[tuple[str, float]] = None
