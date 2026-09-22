@@ -43,7 +43,7 @@ export const api = {
   traffic: {
     fetch: () => get<{ aircraft: AircraftState[]; count: number; jja_count: number; updated: number; error?: string; cached?: boolean }>('/traffic/'),
     activeRunway: (icao: string) =>
-      get<{ icao: string; runways: { id: string; count: number; callsigns: string[] }[]; updated?: number; note?: string }>(
+      get<{ icao: string; runways: { id: string; count: number; callsigns: string[]; last_seen: number }[]; window_sec?: number; updated?: number; note?: string }>(
         `/traffic/active-runway/${encodeURIComponent(icao)}`,
       ),
   },

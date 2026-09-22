@@ -46,6 +46,13 @@ function formatTaf(raw: string): string {
   return raw.replace(/\s+(TEMPO|BECMG|FM\d{6}|PROB\d{2})\b/g, '\n     $1').trim()
 }
 
+function timeAgo(unixSec: number): string {
+  const diffSec = Math.max(0, Date.now() / 1000 - unixSec)
+  if (diffSec < 60) return '방금 전'
+  const min = Math.round(diffSec / 60)
+  return `${min}분 전`
+}
+
 // ── Curfew banner ────────────────────────────────────────────────────────────
 
 const TZ_SHORT: Record<string, string> = {
@@ -371,7 +378,7 @@ export default function AirportPanel() {
 
   // 실시간 ADS-B(OpenSky) 기준 사용 활주로 — 공항이 바뀔 때마다 새로 조회.
   // 바람 기반 추정(estimateActiveRunway)은 이게 비어있을 때만 폴백으로 보여줌.
-  const [liveRunway, setLiveRunway] = useState<{ id: string; count: number; callsigns: string[] }[] | null>(null)
+  const [liveRunway, setLiveRunway] = useState<{ id: string; count: number; callsigns: string[]; last_seen: number }[] | null>(null)
   const [liveRunwayLoading, setLiveRunwayLoading] = useState(false)
   useEffect(() => {
     const currentIcao = state.selectedAirportIcao
@@ -520,7 +527,7 @@ export default function AirportPanel() {
                   <p className="text-[10px] text-gray-600 px-1">실시간 활주로 확인 중...</p>
                 ) : liveRunway && liveRunway.length > 0 ? (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] bg-gray-950 rounded-lg px-3 py-1.5">
-                    <span className="text-gray-500">현재 사용 활주로(실시간 ADS-B)</span>
+                    <span className="text-gray-500">현재 사용 활주로(최근 30분 ADS-B)</span>
                     {liveRunway.map(r => (
                       <span key={r.id} className="flex items-center gap-1">
                         <span className="font-mono font-bold text-white">RWY {r.id}</span>
@@ -528,7 +535,7 @@ export default function AirportPanel() {
                           className="text-gray-500"
                           title={r.callsigns.join(', ')}
                         >
-                          ({r.count}대{r.callsigns.length > 0 ? ` · ${r.callsigns.slice(0, 2).join(', ')}` : ''})
+                          ({r.count}대{r.callsigns.length > 0 ? ` · ${r.callsigns.slice(0, 2).join(', ')}` : ''} · 마지막 포착 {timeAgo(r.last_seen)})
                         </span>
                       </span>
                     ))}
