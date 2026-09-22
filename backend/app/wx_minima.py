@@ -194,19 +194,19 @@ def get_seed() -> Dict[str, dict]:
 #   4) 강설 — 약(-SN) → 3(주의II), 중/강(SN, +SN) → 4(경고)
 #   5) 바람 — 활주로 방향 대비 측풍 20kt 이상 또는 돌풍 35kt 이상
 #        일반 공항: 3(주의II) / CJU(RKPC): 4(경고)
-#      + 공항별 특례: PUS(RKPK) RWY36 배풍 10kt 이상 → 3(주의II)
-#                     CJU(RKPC) RWY07/25 배풍 10kt 이상 → 4(경고) — 07/25는 사용자
-#                     확인 기준. METAR 단일 풍향으로는 두 끝이 동시에 배풍일 수 없지만
-#                     (항상 한쪽은 맞바람), 실제로는 AMOS 활주로별 관측이 국지적으로
-#                     갈려 둘 다 배풍으로 찍히는 경우가 있어 METAR 배풍값 자체를 기준으로 씀
+#      + 공항별 특례: PUS(RKPK) RWY36 배풍 10kt 이상 → 3(주의II) — RWY36이 운영상
+#        고정으로 취급돼 바람이 나빠도 반대쪽(RWY18)으로 못 바꾸는 경우를 위한 특례.
+#        CJU(RKPC)는 07/25 둘 다 정상적으로 쓸 수 있는 활주로라 이런 특례가 없음 —
+#        한쪽 끝이 배풍이면 반대쪽은 항상 정풍이니 그냥 정풍인 쪽을 쓰면 되고, 그건
+#        경고 사유가 아님(예전엔 "07/25 배풍 Nkt"로 양끝 중 더 나쁜 쪽을 매번
+#        경고했었는데, 정풍인 쪽이 있으면 활주로를 바꾸면 그만이라 사실상 항상
+#        걸리는 무의미한 경고였음 — 제거함)
 
 _GENERAL_CROSSWIND_CAUTION_KT = 20
 _GENERAL_GUST_CAUTION_KT = 35
 _PUS_ICAO = "RKPK"
 _PUS_TAILWIND_CAUTION_KT = 10
 _CJU_ICAO = "RKPC"
-_CJU_RWY_PREFIXES = ("RW07", "RW25")  # 사용자 확인: CJU 배풍 특례는 07/25 활주로 기준
-_CJU_TAILWIND_CAUTION_KT = 10
 
 
 def _wind_components(wind_dir: float, wind_kt: float, bearing_deg: float) -> Tuple[float, float]:
@@ -233,9 +233,10 @@ def _best_runway_wind(icao: str, wind_dir: Optional[float], wind_kt: Optional[fl
 def _tailwind_for_prefixes(
     icao: str, prefixes: Tuple[str, ...], wind_dir: Optional[float], wind_kt: Optional[float]
 ) -> float:
-    """지정한 활주로(prefix로 매칭) 중 배풍이 가장 큰 값 — PUS RWY36, CJU 07/25처럼
-    운영상 고정으로 취급되는 특정 활주로의 배풍 특례용. 반대편 끝이 같이 매칭되면
-    (예: CJU 07/25) 둘 중 실제로 배풍인 쪽이 자연히 골라짐(반대쪽은 맞바람이라 0)."""
+    """지정한 활주로(prefix로 매칭) 중 배풍이 가장 큰 값 — PUS RWY36처럼 운영상
+    고정으로 취급되는(반대쪽으로 못 바꾸는) 특정 활주로의 배풍 특례용. 반대쪽으로
+    자유롭게 바꿀 수 있는 일반적인 활주로 쌍에는 쓰면 안 됨 — 한쪽이 배풍이면
+    반대쪽은 항상 정풍이라, 그냥 정풍인 쪽을 쓰면 그만인 걸 매번 경고하게 됨."""
     runways = [r for r in store.runways.get(icao, []) if r.id.startswith(prefixes)]
     if not runways or wind_dir is None or wind_kt is None:
         return 0.0
@@ -316,15 +317,6 @@ def classify_metar_level(
         tw36 = _tailwind_for_prefixes(_PUS_ICAO, ("RW36",), wind_dir, wind_kt)
         if tw36 >= _PUS_TAILWIND_CAUTION_KT:
             triggers.append((3, f"RWY36 배풍 {tw36:.0f}kt"))
-
-    if icao == _CJU_ICAO:
-        # METAR는 공항 대표 지점 한 곳의 바람이라 07/25 양끝이 기하학적으로 동시에
-        # 배풍일 수 없지만(항상 한쪽은 맞바람), 실제로는 AMOS 활주로별 관측이 국지적으로
-        # 갈려서 둘 다 배풍으로 찍히는 경우가 있다고 함 — METAR만으론 그 국지차를 못
-        # 잡으므로, 07/25 기준 배풍이 임계치를 넘는지(둘 중 실제로 배풍인 쪽 기준)만 확인.
-        tw0725 = _tailwind_for_prefixes(_CJU_ICAO, _CJU_RWY_PREFIXES, wind_dir, wind_kt)
-        if tw0725 >= _CJU_TAILWIND_CAUTION_KT:
-            triggers.append((4, f"RWY07/25 배풍 {tw0725:.0f}kt"))
 
     if not triggers:
         return 1, []
