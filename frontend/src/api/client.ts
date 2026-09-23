@@ -14,10 +14,10 @@ async function get<T>(path: string, params?: Record<string, string>): Promise<T>
 
 export const api = {
   routes: {
-    list(params?: { origin?: string; destination?: string; fix?: string; fir?: string }) {
+    list(params?: { origin?: string; destination?: string; fix?: string; fir?: string; corridor?: string }) {
       return get<{ count: number; routes: RouteMeta[] }>('/routes', params as Record<string, string>)
     },
-    geometry(params?: { origin?: string; destination?: string; fix?: string; fir?: string; ids?: string }) {
+    geometry(params?: { origin?: string; destination?: string; fix?: string; fir?: string; corridor?: string; ids?: string }) {
       return get<GeoJSONFeatureCollection>('/routes/geometry', params as Record<string, string>)
     },
     origins: () => get<string[]>('/routes/origins'),

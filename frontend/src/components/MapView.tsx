@@ -553,6 +553,9 @@ export default function MapView() {
     waypoint: { ping: 'bg-[#C08497]',   dot: 'bg-[#C08497]',   text: 'text-[#D8A8B5]' },
     airway:   { ping: 'bg-[#C08497]',   dot: 'bg-[#C08497]',   text: 'text-[#D8A8B5]' },
     fir:      { ping: 'bg-[#C08497]',   dot: 'bg-[#C08497]',   text: 'text-[#D8A8B5]' },
+    // corridor는 lat/lon이 항상 null이라(단일 지점이 아니라 경로 전체) 이 마커에는
+    // 실제로 안 뜨지만(위의 필터에서 걸러짐), 타입 안전성을 위해 항목은 채워둠
+    corridor: { ping: 'bg-violet-400',  dot: 'bg-violet-500',  text: 'text-violet-300' },
     route:    { ping: 'bg-blue-400',    dot: 'bg-blue-500',    text: 'text-blue-300'  },
   }
 

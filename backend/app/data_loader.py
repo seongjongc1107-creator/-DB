@@ -1001,20 +1001,39 @@ class NavDataStore:
         self._country_crossing_cache[route.id] = segments
         return segments
 
+    def resolve_corridor_route_ids(self, corridor: str) -> set:
+        """공백으로 구분된 항로 문자열(예: "ANRAT A326 MEDIL B593 DONVO")을 하나의
+        이어진 경로(코리도)로 해석해서, 그 경로 상의 어느 지점이든 지나가는 항로를
+        전부 모음(OR) — fix 하나하나를 독립적으로 AND 교집합하는 일반 fix 검색과
+        달리, "이 코리도의 일부만 겹쳐도" 영향항로로 잡고 싶을 때 씀(예: 특정
+        항공로 구간 폐쇄가 어떤 우리 항로에 영향 주는지 확인). resolve_route_tokens와
+        동일한 파싱 규칙(항공로 펼치기 포함)을 그대로 재사용."""
+        tokens = corridor.strip().upper().split()
+        if not tokens:
+            return set()
+        _, passed_fixes, _, _, _ = self.resolve_route_tokens(tokens)
+        ids: set = set()
+        for tok in tokens:
+            ids |= set(self.route_by_token.get(tok, []))
+        for fx in passed_fixes:
+            ids |= set(self.route_by_token.get(fx, []))
+        return ids
+
     def get_routes(
         self,
         origin: Optional[str] = None,
         destination: Optional[str] = None,
         fix: Optional[str] = None,
         fir: Optional[str] = None,
+        corridor: Optional[str] = None,
         ids: Optional[List[int]] = None,
     ) -> List[Route]:
         if ids is not None:
             return [self.routes[i] for i in ids if i < len(self.routes)]
 
-        # origin/destination/fix/fir가 여러 개 동시에 오면 전부 만족하는 교집합이어야
-        # 함(예: "N892 지나는 RKSI→VVPQ 항로") — 예전엔 fix가 있으면 origin/
-        # destination을 아예 무시하는 버그가 있었음
+        # origin/destination/fix/fir/corridor가 여러 개 동시에 오면 전부 만족하는
+        # 교집합이어야 함(예: "N892 지나는 RKSI→VVPQ 항로") — 예전엔 fix가 있으면
+        # origin/destination을 아예 무시하는 버그가 있었음
         id_set: Optional[set] = None
 
         def _intersect(new_ids: set) -> None:
@@ -1030,6 +1049,8 @@ class NavDataStore:
                 token = token.strip()
                 if token:
                     _intersect(set(self.route_by_token.get(token.upper(), [])))
+        if corridor:
+            _intersect(self.resolve_corridor_route_ids(corridor))
         if origin:
             _intersect(set(self.route_by_origin.get(origin.upper(), [])))
         if destination:

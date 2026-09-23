@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, X, Route, Building2, MapPin, Globe2 } from 'lucide-react'
+import { Search, X, Route, Building2, MapPin, Globe2, Waypoints } from 'lucide-react'
 import * as turf from '@turf/turf'
 import { api } from '../api/client'
 import { useApp } from '../AppContext'
@@ -10,6 +10,7 @@ const TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: s
   airport: { label: 'APT', icon: <Building2 size={10} />, color: 'bg-red-900/60',     textColor: 'text-red-300',    chipColor: 'bg-red-900/40 border-red-700 text-red-300'    },
   waypoint:{ label: 'WPT', icon: <MapPin size={10} />,    color: 'bg-gray-700/80',    textColor: 'text-gray-300',   chipColor: 'bg-[#C08497]/20 border-[#C08497] text-[#D8A8B5]' },
   fir:     { label: 'FIR', icon: <Globe2 size={10} />,    color: 'bg-sky-900/60',     textColor: 'text-sky-300',    chipColor: 'bg-sky-900/40 border-sky-700 text-sky-300'      },
+  corridor:{ label: 'RTE', icon: <Waypoints size={10} />, color: 'bg-violet-900/60',  textColor: 'text-violet-300', chipColor: 'bg-violet-900/40 border-violet-700 text-violet-300' },
 }
 
 export default function SearchBar() {
@@ -18,6 +19,7 @@ export default function SearchBar() {
   const [results, setResults] = useState<SearchResult[]>([])
   const [open, setOpen] = useState(false)
   const [focused, setFocused] = useState(false)
+  const [corridorError, setCorridorError] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -180,6 +182,57 @@ export default function SearchBar() {
 
   }
 
+  // "ANRAT A326 MEDIL B593 DONVO"처럼 waypoint/항로를 이어붙인 코리도 문자열을
+  // 검색 — 개별 fix를 독립적으로 AND 교집합하는 일반 검색과 달리, 이 코리도의
+  // 어느 한 지점이라도 지나는 항로를 OR로 전부 찾음(예: 특정 항로 구간 폐쇄가
+  // 어떤 항로에 영향 주는지 확인할 때). resolve_route_tokens를 백엔드에서
+  // 그대로 재사용하므로 항공로 펼치기·gap 처리는 실제 항로 파싱과 동일함.
+  async function onSelectCorridor(raw: string) {
+    const corridor = raw.trim().toUpperCase()
+    if (!corridor) return
+    setOpen(false)
+    setQuery('')
+    setCorridorError(null)
+
+    const result: SearchResult = { type: 'corridor', id: corridor, name: corridor, lat: null, lon: null, description: '' }
+    dispatch({ type: 'ADD_HIGHLIGHT', payload: result })
+    dispatch({ type: 'SET_LOADING', payload: true })
+    try {
+      const [parsed, routeData, matchedGeoJSON] = await Promise.all([
+        api.routes.parse(corridor).catch(() => null),
+        api.routes.list({ corridor }),
+        api.routes.geometry({ corridor }),
+      ])
+      dispatch({ type: 'SET_ACTIVE_CORRIDOR', payload: corridor })
+      applyRoutes(routeData.routes, matchedGeoJSON)
+
+      const warnings: string[] = []
+      if (parsed && parsed.features.length > 0) {
+        // 코리도 경로 자체를 지도에 표시 — airway 검색과 같은 강조선 레이어를
+        // 재사용하고, properties.airway를 코리도 id로 태깅해서 removeHighlight가
+        // airway와 동일한 방식으로 이 선만 지워낼 수 있게 함
+        const tagged = {
+          ...parsed,
+          features: parsed.features.map(f => ({ ...f, properties: { ...f.properties, airway: corridor } })),
+        }
+        dispatch({ type: 'MERGE_AIRWAY_GEOJSON', payload: tagged })
+        try {
+          const [minLon, minLat, maxLon, maxLat] = turf.bbox(tagged as any)
+          dispatch({ type: 'SET_FIT_BOUNDS', payload: [[minLon, minLat], [maxLon, maxLat]] })
+        } catch {}
+        if (parsed.airway_gaps.length > 0) warnings.push(`항로 연결 안 됨(직선 대체): ${parsed.airway_gaps.join(', ')}`)
+        if (parsed.unresolved.length > 0) warnings.push(`못 찾은 토큰: ${parsed.unresolved.join(', ')}`)
+      } else {
+        warnings.push(`경로를 해석하지 못했습니다: "${corridor}"`)
+      }
+      if (warnings.length > 0) setCorridorError(warnings.join(' / '))
+    } catch {
+      setCorridorError('코리도 검색 중 오류가 발생했습니다')
+    } finally {
+      dispatch({ type: 'SET_LOADING', payload: false })
+    }
+  }
+
   function removeHighlight(id: string, type: SearchResult['type']) {
     dispatch({ type: 'REMOVE_HIGHLIGHT', payload: id })
     const remaining = state.highlightPoints.filter(h => h.id !== id)
@@ -189,18 +242,25 @@ export default function SearchBar() {
       dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
       dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
       dispatch({ type: 'SET_ACTIVE_FIR', payload: null })
+      dispatch({ type: 'SET_ACTIVE_CORRIDOR', payload: null })
       dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: null })
       dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: null })
+      setCorridorError(null)
       return
     }
-    if (type === 'airway') {
-      // 이 airway만 지도에서 제거 (같이 검색해둔 다른 airway는 유지)
+    if (type === 'airway' || type === 'corridor') {
+      // 이 airway/코리도만 지도에서 제거 (같이 검색해둔 다른 것들은 유지) —
+      // 코리도도 airwayGeoJSON에 airway=코리도문자열로 태깅해서 넣었으므로 동일하게 처리됨
       const filtered = {
         type: 'FeatureCollection' as const,
         features: (state.airwayGeoJSON?.features ?? []).filter(f => f.properties?.airway !== id),
       }
       dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: filtered })
-      if (state.activeAirway === id) dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
+      if (type === 'airway' && state.activeAirway === id) dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
+      if (type === 'corridor' && state.activeCorridor === id) {
+        dispatch({ type: 'SET_ACTIVE_CORRIDOR', payload: null })
+        setCorridorError(null)
+      }
     } else if (type === 'waypoint' && state.activeWaypoint === id) {
       dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
     } else if (type === 'fir' && state.activeFir === id) {
@@ -211,11 +271,13 @@ export default function SearchBar() {
   function clear() {
     setQuery('')
     setResults([])
+    setCorridorError(null)
     dispatch({ type: 'CLEAR_HIGHLIGHTS' })
     dispatch({ type: 'CLEAR_AIRWAY_ENDPOINTS' })
     dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
     dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
     dispatch({ type: 'SET_ACTIVE_FIR', payload: null })
+    dispatch({ type: 'SET_ACTIVE_CORRIDOR', payload: null })
     dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: null })
     dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: null })
   }
@@ -240,6 +302,16 @@ export default function SearchBar() {
           onChange={e => setQuery(e.target.value)}
           onFocus={() => { setFocused(true); results.length > 0 && setOpen(true) }}
           onBlur={() => setFocused(false)}
+          onKeyDown={e => {
+            if (e.key !== 'Enter') return
+            // 공백으로 2개 이상 이어 입력했으면(waypoint/항로 코리도) 자동완성
+            // 단건 선택이 아니라 코리도 전체를 하나의 경로로 해석해서 검색
+            const tokenCount = query.trim().split(/\s+/).filter(Boolean).length
+            if (tokenCount >= 2) {
+              e.preventDefault()
+              onSelectCorridor(query)
+            }
+          }}
         />
         {(query || highlights.length > 0) && (
           <button onClick={clear} className="text-gray-600 hover:text-gray-300 transition-colors shrink-0">
@@ -247,6 +319,15 @@ export default function SearchBar() {
           </button>
         )}
       </div>
+
+      {focused && !query && (
+        <p className="text-[10px] text-gray-600 mt-1">
+          waypoint/항로를 공백으로 이어 입력 후 Enter → 그 경로 일부라도 겹치는 항로 검색
+        </p>
+      )}
+      {corridorError && (
+        <p className="text-[10px] text-amber-500 mt-1">{corridorError}</p>
+      )}
 
       {/* Selected chips */}
       {highlights.length > 0 && (

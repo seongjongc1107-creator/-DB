@@ -47,21 +47,24 @@ export default function RoutePanel() {
 
   useEffect(() => {
     if (!state.origin && !state.destination) return
-    // 이미 airway/waypoint/FIR를 검색해서 활성화해둔 상태라면(예: N892 검색 후,
-    // 또는 ZSHA 공역 검색 후) 출발지·도착지까지 같이 골랐을 때 "그 항공로/공역을
-    // 지나는 RKSI→VVPQ 항로"처럼 조건을 한 번에 교집합으로 좁혀줌 — 백엔드가
-    // origin/destination/fix/fir를 동시에 지원함. 예전엔 fir가 여기 안 섞여서
-    // FIR 검색 후 출발지/도착지를 고르면 FIR 조건이 조용히 사라졌었음.
+    // 이미 airway/waypoint/FIR/코리도를 검색해서 활성화해둔 상태라면(예: N892 검색
+    // 후, ZSHA 공역 검색 후, 또는 "ANRAT A326 DONVO" 코리도 검색 후) 출발지·도착지
+    // 까지 같이 골랐을 때 "그 항공로/공역/코리도를 지나는 RKSI→VVPQ 항로"처럼
+    // 조건을 한 번에 교집합으로 좁혀줌 — 백엔드가 origin/destination/fix/fir/
+    // corridor를 동시에 지원함. 예전엔 fir가 여기 안 섞여서 FIR 검색 후 출발지/
+    // 도착지를 고르면 FIR 조건이 조용히 사라졌었음 — corridor도 같은 실수를
+    // 반복하지 않도록 처음부터 같이 넣음.
     const fix = activeFixKey || undefined
     const fir = state.activeFir || undefined
+    const corridor = state.activeCorridor || undefined
     // 출발지 고르고 바로 이어서 도착지 고르면(또는 StrictMode 이중 렌더링 때문에)
     // 이전 요청이 늦게 도착해서 최신 선택 결과를 덮어쓰는 경쟁 상태가 있었음 —
     // cancelled 플래그로 오래된 응답은 무시함
     let cancelled = false
     dispatch({ type: 'SET_LOADING', payload: true })
     Promise.all([
-      api.routes.list({ origin: state.origin || undefined, destination: state.destination || undefined, fix, fir }),
-      api.routes.geometry({ origin: state.origin || undefined, destination: state.destination || undefined, fix, fir }),
+      api.routes.list({ origin: state.origin || undefined, destination: state.destination || undefined, fix, fir, corridor }),
+      api.routes.geometry({ origin: state.origin || undefined, destination: state.destination || undefined, fix, fir, corridor }),
     ]).then(([listData, geoData]) => {
       if (cancelled) return
       dispatch({ type: 'SET_ALL_ROUTES', payload: listData.routes })
@@ -69,7 +72,7 @@ export default function RoutePanel() {
       dispatch({ type: 'SET_SELECTED_ROUTES', payload: [] })
     }).catch(() => {}).finally(() => { if (!cancelled) dispatch({ type: 'SET_LOADING', payload: false }) })
     return () => { cancelled = true }
-  }, [state.origin, state.destination, activeFixKey, state.activeFir, dispatch])
+  }, [state.origin, state.destination, activeFixKey, state.activeFir, state.activeCorridor, dispatch])
 
   // 공간 필터 해제 시 대체 항로 모드도 해제
   useEffect(() => {
@@ -86,6 +89,7 @@ export default function RoutePanel() {
     dispatch({ type: 'SET_ACTIVE_AIRWAY', payload: null })
     dispatch({ type: 'SET_ACTIVE_WAYPOINT', payload: null })
     dispatch({ type: 'SET_ACTIVE_FIR', payload: null })
+    dispatch({ type: 'SET_ACTIVE_CORRIDOR', payload: null })
     dispatch({ type: 'SET_AIRWAY_GEOJSON', payload: null })
     dispatch({ type: 'SET_MATCHED_ROUTES_GEOJSON', payload: null })
     dispatch({ type: 'CLEAR_HIGHLIGHTS' })
@@ -341,6 +345,11 @@ export default function RoutePanel() {
       {state.highlightPoints.filter(h => h.type === 'fir').map(h => (
         <div key={`fir-${h.id}`} className="bg-sky-900/30 border border-sky-700/50 rounded px-2 py-1.5 text-xs text-sky-300">
           FIR <strong>{h.name}</strong> — {routes.length}개 항로 매칭
+        </div>
+      ))}
+      {state.highlightPoints.filter(h => h.type === 'corridor').map(h => (
+        <div key={`corridor-${h.id}`} className="bg-violet-900/30 border border-violet-700/50 rounded px-2 py-1.5 text-xs text-violet-300">
+          코리도 <strong className="break-all">{h.name}</strong> — {routes.length}개 항로 매칭
         </div>
       ))}
 
