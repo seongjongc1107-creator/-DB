@@ -263,6 +263,12 @@ class NavDataStore:
         self.route_by_origin: Dict[str, List[int]] = defaultdict(list)
         self.route_by_dest: Dict[str, List[int]] = defaultdict(list)
         self.route_by_token: Dict[str, List[int]] = defaultdict(list)
+        # (항공로명, fix명) → 그 항공로의 그 구간을 실제로 타는 항로 id들 — 코리도
+        # 검색(resolve_corridor_route_ids)이 "같은 fix를 지나기만 하면" 아니라
+        # "같은 항공로로 그 fix를 지나야만" 매칭시키기 위한 색인. route_by_token은
+        # fix 이름만 보므로 DONVO를 A326이 아니라 전혀 다른 항로/DCT로 지나는
+        # 항로까지 같이 잡히는 문제가 있었음.
+        self.route_by_leg_fix: Dict[Tuple[str, str], List[int]] = defaultdict(list)
         # route.id → (min_lon, min_lat, max_lon, max_lat) — FIR 교차 판정 전에
         # bbox로 먼저 걸러내서, 관련 없는 항로 수천 개까지 매번 point-in-polygon
         # 돌리는 걸 피하기 위한 것 (get_routes_by_fir 참고).
@@ -363,6 +369,7 @@ class NavDataStore:
         self.route_by_origin = staging.route_by_origin
         self.route_by_dest = staging.route_by_dest
         self.route_by_token = staging.route_by_token
+        self.route_by_leg_fix = staging.route_by_leg_fix
         self.route_bbox = staging.route_bbox
         self.fir_data = staging.fir_data
         self.fir_by_icao = staging.fir_by_icao
@@ -884,7 +891,15 @@ class NavDataStore:
 
         fixed = _fix_antimeridian(raw)
         legs = [
-            {"airway": label, "coords": fixed[start:end + 1]}
+            {
+                "airway": label,
+                "coords": fixed[start:end + 1],
+                # 이 구간(레그)에서 실제로 지나는 named fix들 — SID/STAR 절차로
+                # 생긴 점은 이름이 없어 None이라 걸러냄. 코리도 검색이 "같은
+                # 항공로로 같은 fix를 지나야 매칭"을 판정하는 데 씀
+                # (resolve_corridor_route_ids / route_by_leg_fix).
+                "fixes": [n for n in names[start:end + 1] if n],
+            }
             for label, start, end in leg_spans
             if end > start
         ]
@@ -910,6 +925,13 @@ class NavDataStore:
                 self.route_by_token[token].append(route.id)
             for fix in route.passed_fixes:
                 self.route_by_token[fix].append(route.id)
+            # (항공로명, fix) 단위 색인 — 코리도 검색에서 "같은 항공로의 같은
+            # 구간을 실제로 타는지"를 판정하는 데 씀 (route_by_token은 fix명만
+            # 보므로 다른 항공로/DCT로 지나는 것까지 같이 잡히는 문제가 있었음)
+            for leg in route.legs:
+                airway = leg.get("airway")
+                for fx in leg.get("fixes", []):
+                    self.route_by_leg_fix[(airway, fx)].append(route.id)
 
     # ------------------------------------------------------------------
     # Query helpers
@@ -1003,20 +1025,25 @@ class NavDataStore:
 
     def resolve_corridor_route_ids(self, corridor: str) -> set:
         """공백으로 구분된 항로 문자열(예: "ANRAT A326 MEDIL B593 DONVO")을 하나의
-        이어진 경로(코리도)로 해석해서, 그 경로 상의 어느 지점이든 지나가는 항로를
+        이어진 경로(코리도)로 해석해서, 그 경로 상의 어느 구간이든 지나가는 항로를
         전부 모음(OR) — fix 하나하나를 독립적으로 AND 교집합하는 일반 fix 검색과
         달리, "이 코리도의 일부만 겹쳐도" 영향항로로 잡고 싶을 때 씀(예: 특정
-        항공로 구간 폐쇄가 어떤 우리 항로에 영향 주는지 확인). resolve_route_tokens와
-        동일한 파싱 규칙(항공로 펼치기 포함)을 그대로 재사용."""
+        항공로 구간 폐쇄가 어떤 우리 항로에 영향 주는지 확인).
+
+        route_by_leg_fix((항공로명, fix)) 기준으로만 매칭 — fix 이름만 보고 매칭하면
+        "DONVO를 A326이 아니라 전혀 다른 항공로나 DCT로 지나는 항로"까지 같이 잡히는
+        문제가 있었음(예전엔 route_by_token 기준으로 매칭해서 그랬음). 같은
+        항공로로 그 구간을 실제로 타야만 매칭되도록, 코리도 자신도
+        resolve_route_tokens가 만들어주는 레그(구간)별 fix 목록을 그대로 씀."""
         tokens = corridor.strip().upper().split()
         if not tokens:
             return set()
-        _, passed_fixes, _, _, _ = self.resolve_route_tokens(tokens)
+        _, _, _, legs, _ = self.resolve_route_tokens(tokens)
         ids: set = set()
-        for tok in tokens:
-            ids |= set(self.route_by_token.get(tok, []))
-        for fx in passed_fixes:
-            ids |= set(self.route_by_token.get(fx, []))
+        for leg in legs:
+            airway = leg.get("airway")
+            for fx in leg.get("fixes", []):
+                ids |= set(self.route_by_leg_fix.get((airway, fx), []))
         return ids
 
     def get_routes(
