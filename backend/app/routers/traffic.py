@@ -4,6 +4,8 @@ Server-side 30-second cache to stay within rate limits.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import math
 import time
 from typing import Optional
@@ -12,6 +14,8 @@ import httpx
 from fastapi import APIRouter
 
 from ..data_loader import store
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -26,9 +30,9 @@ _cache: dict = {'data': None, 'ts': 0.0}
 
 # 사용 활주로 판정용 최근 이력 — 그 순간의 스냅샷 하나만 보면 "우연히 그 순간에
 # 잡힌 게 없으면" 활주로가 아예 안 뜨는 문제가 있어서, 최근 30분치를 쌓아두고
-# 그 안에서 매칭된 기체를 모아서 판정함. MapView.tsx가 지도 켜져있는 동안 이미
-# 10초마다 이 엔드포인트를 폴링하고 있어서, OpenSky에 더 자주 요청을 보내는 게
-# 아니라 "이미 받아오던 걸 더 오래 들고 있기만" 하면 되는 구조.
+# 그 안에서 매칭된 기체를 모아서 판정함. 프론트가 지도를 켜놓고 있을 때만 쌓이는
+# 구조였으면 아무도 안 보고 있는 동안은 이력에 공백이 생기므로, 서버 자체가
+# start_traffic_poller()로 독립적으로 계속 채워서 항상 실제 최근 30분을 보장함.
 _HISTORY_WINDOW_SEC = 30 * 60
 # 지상(on_ground)에 있는 기체만 저장 — 활주로 매칭도 지상 기체만 쓰기로 했으므로
 # (아래 get_active_runway 설명 참고) 공중 항적은 애초에 저장할 필요가 없음.
@@ -195,3 +199,29 @@ async def get_active_runway(icao: str):
         "window_sec": _HISTORY_WINDOW_SEC,
         "updated": traffic.get("updated"),
     }
+
+
+# ── 백그라운드 폴러 ───────────────────────────────────────────────────────────
+# 예전엔 프론트(MapView.tsx)가 지도를 켜놓은 동안 폴링하는 걸 그대로 재사용해서
+# _history를 채웠는데, 그러면 아무도 안 보고 있는 시간대엔 이력에 공백이 생겨서
+# "최근 30분"이 사실은 "최근 30분 중 누군가 지도를 보고 있던 시간"이 돼버림.
+# 서버 기동 시 이 폴러를 띄워서 프론트 사용 여부와 무관하게 항상 채워지게 함
+# (get_traffic() 자체가 _CACHE_TTL로 이미 요청 빈도를 제한하므로, 프론트도 계속
+# 폴링해도 OpenSky 호출이 중복으로 늘진 않음 — 어차피 캐시를 같이 씀).
+_poller_task: Optional[asyncio.Task] = None
+
+
+async def _poll_loop() -> None:
+    while True:
+        try:
+            await get_traffic()
+        except Exception:
+            logger.exception("백그라운드 traffic 폴링 실패")
+        await asyncio.sleep(_CACHE_TTL)
+
+
+def start_traffic_poller() -> None:
+    global _poller_task
+    if _poller_task is not None:
+        return
+    _poller_task = asyncio.create_task(_poll_loop())
