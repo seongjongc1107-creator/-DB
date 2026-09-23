@@ -604,6 +604,7 @@ export interface AppState {
   activeWaypoint: string | null
   activeFir: string | null  // 검색으로 찾은 FIR/UIR 1개 강조 (icao) — firGeoJSON에서 필터링해서 씀
   activeCorridor: string | null  // 검색창에 입력한 "waypoint 항로 waypoint..." 코리도 문자열 — 이 경로 일부라도 지나는 항로를 OR로 찾음
+  mapStyleMode: 'full' | 'terrain'  // 'terrain'이면 베이스맵에서 도로/건물/라벨/POI 다 끄고 지형·수역·국경선만 남김
   // 공간 필터(태풍 등)와 교차하는 항로 id — 목록에서 정렬/강조용, allRoutes는 그대로 유지
   affectedRouteIds: number[]
   // Data
@@ -678,6 +679,7 @@ export type AppAction =
   | { type: 'SET_ACTIVE_WAYPOINT'; payload: string | null }
   | { type: 'SET_ACTIVE_FIR'; payload: string | null }
   | { type: 'SET_ACTIVE_CORRIDOR'; payload: string | null }
+  | { type: 'SET_MAP_STYLE_MODE'; payload: 'full' | 'terrain' }
   | { type: 'SET_ALL_ROUTES'; payload: RouteMeta[] }
   | { type: 'SET_ROUTE_GEOJSON'; payload: GeoJSONFeatureCollection | null }
   | { type: 'SET_AIRPORTS_GEOJSON'; payload: GeoJSONFeatureCollection }

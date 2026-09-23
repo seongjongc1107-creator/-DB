@@ -12,6 +12,7 @@ const initialState: AppState = {
   activeWaypoint: null,
   activeFir: null,
   activeCorridor: null,
+  mapStyleMode: 'full',
   allRoutes: [],
   routeGeoJSON: null,
   airportsGeoJSON: null,
@@ -139,6 +140,8 @@ function reducer(state: AppState, action: AppAction): AppState {
           matchedRoutes: action.payload !== null ? true : state.layers.matchedRoutes,
         },
       }
+    case 'SET_MAP_STYLE_MODE':
+      return { ...state, mapStyleMode: action.payload }
     case 'SET_AIRWAY_GEOJSON':
       return { ...state, airwayGeoJSON: action.payload }
     case 'SET_MATCHED_ROUTES_GEOJSON':

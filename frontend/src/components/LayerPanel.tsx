@@ -65,7 +65,27 @@ export default function LayerPanel() {
         <span className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Layers</span>
       </div>
       <div className="space-y-2">
-        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">기본 데이터</div>
+        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">베이스맵</div>
+        <div className="flex rounded-md overflow-hidden border border-gray-700 text-[11px]">
+          <button
+            onClick={() => dispatch({ type: 'SET_MAP_STYLE_MODE', payload: 'full' })}
+            className={`flex-1 py-1 transition-colors ${
+              state.mapStyleMode === 'full' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            기본
+          </button>
+          <button
+            onClick={() => dispatch({ type: 'SET_MAP_STYLE_MODE', payload: 'terrain' })}
+            className={`flex-1 py-1 transition-colors border-l border-gray-700 ${
+              state.mapStyleMode === 'terrain' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            지형만
+          </button>
+        </div>
+
+        <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider pt-2 border-t border-gray-800">기본 데이터</div>
         {BASIC_LAYER_CONFIG.map(renderRow)}
 
         <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider pt-2 border-t border-gray-800">항로 · 운영 데이터</div>

@@ -9,6 +9,18 @@ import { SELECT_COLORS } from '../lib/selectionColors'
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 
+// "지형만 보기" 모드에서 남겨둘 베이스맵 레이어 — OpenFreeMap Liberty 스타일(OpenMapTiles
+// 스키마)의 레이어 id 규칙을 그대로 이용함. 여기 없는 레이어(도로/건물/POI/라벨 등)는
+// 전부 숨김. 화이트리스트 방식이라, 스타일이 나중에 레이어를 추가해도 기본은 "숨김"이라
+// 안전한 쪽으로 기움(반대로 하면 새 레이어가 조용히 다시 보이게 됨).
+const TERRAIN_KEEP_EXACT = new Set([
+  'background', 'natural_earth', 'water', 'waterway_tunnel', 'waterway_river', 'waterway_other',
+])
+const TERRAIN_KEEP_PREFIXES = ['landcover_', 'landuse_', 'park', 'boundary_']
+function isTerrainKeepLayer(id: string): boolean {
+  return TERRAIN_KEEP_EXACT.has(id) || TERRAIN_KEEP_PREFIXES.some(p => id.startsWith(p))
+}
+
 function drawPlaneImageData(color: string, outline = 'rgba(0,0,0,0.7)'): ImageData {
   const SZ = 32
   const canvas = document.createElement('canvas')
@@ -102,6 +114,20 @@ export default function MapView() {
   const ashDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [planeIconsReady, setPlaneIconsReady] = useState(false)
+
+  // "지형만 보기" 모드 — 베이스맵(OpenFreeMap) 자체 레이어 중 도로/건물/POI/라벨을
+  // 숨기고 지형·수역·국경선만 남김. 우리 앱이 그 위에 자체로 그리는 항로/공항 레이어는
+  // 이 스타일의 일부가 아니라서 전혀 영향 안 받음.
+  useEffect(() => {
+    if (!mapLoaded) return
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    const showBase = state.mapStyleMode !== 'terrain'
+    for (const layer of map.getStyle().layers ?? []) {
+      if (isTerrainKeepLayer(layer.id)) continue
+      map.setLayoutProperty(layer.id, 'visibility', showBase ? 'visible' : 'none')
+    }
+  }, [state.mapStyleMode, mapLoaded])
 
   // Plane icon 로딩 — traffic 레이어 켤 때 + 맵 로드 후 실행 (동기 ImageData 방식)
   useEffect(() => {
