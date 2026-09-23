@@ -37,6 +37,57 @@ def _install_requirements() -> subprocess.CompletedProcess:
     return _run(["uv", "pip", "install", "-r", "requirements.txt"], BACKEND_DIR)
 
 
+def commit_and_push_data_file(path: Path, message: str) -> dict:
+    """관리자 업로드로 갈아끼운 데이터 파일(backend/data/*.csv)을 그 자리에서 git
+    커밋+푸시함 — 예전엔 이 파일들이 이 PC 로컬 디스크에만 덮어써지고 git엔 전혀
+    반영이 안 돼서, 이 저장소(git 히스토리)와 실제 서비스 데이터가 시간이 갈수록
+    계속 벌어지는 문제가 있었음(다른 PC에서 이 저장소를 clone해서 보면 오래된
+    데이터인 것도 모르고 그대로 씀).
+
+    커밋은 순수 로컬 작업이라 거의 항상 성공하지만, push는 이 PC의 git 원격에
+    실제로 쓰기 권한(자격증명)이 설정돼 있어야 성공함 — 실패해도 커밋 자체는
+    로컬에 남아있으니 데이터가 유실되진 않고, 나중에 수동으로 push하면 됨.
+    반환값의 committed/pushed를 그대로 admin 응답에 얹어서 실패 시 관리자가
+    바로 알 수 있게 함."""
+    try:
+        rel_path = path.relative_to(REPO_ROOT)
+    except ValueError:
+        return {"committed": False, "pushed": False, "error": f"{path}가 저장소 밖에 있음"}
+
+    add = _run(["git", "add", str(rel_path)], REPO_ROOT)
+    if add.returncode != 0:
+        return {"committed": False, "pushed": False, "error": f"git add 실패: {add.stderr.strip()}"}
+
+    diff_check = _run(["git", "diff", "--cached", "--quiet", "--", str(rel_path)], REPO_ROOT)
+    if diff_check.returncode == 0:
+        # 업로드한 내용이 마지막 커밋과 바이트 단위로 동일 — 커밋할 게 없음(에러 아님)
+        return {"committed": False, "pushed": False, "error": None}
+
+    commit = _run(
+        [
+            "git",
+            "-c", "user.name=Route DB Admin Upload",
+            "-c", "user.email=admin-upload@route-db.local",
+            "commit", "-m", message, "--", str(rel_path),
+        ],
+        REPO_ROOT,
+    )
+    if commit.returncode != 0:
+        return {"committed": False, "pushed": False, "error": f"git commit 실패: {commit.stderr.strip()}"}
+
+    push = _run(["git", "push", "origin", "main"], REPO_ROOT)
+    if push.returncode != 0:
+        # 원격이 그 사이 앞서갔을 수 있음(다른 PC/업로드가 먼저 push) — rebase 한 번
+        # 시도해보고 그래도 안 되면 포기(로컬 커밋은 남겨둠, 데이터 유실 없음)
+        pull = _run(["git", "pull", "--rebase", "origin", "main"], REPO_ROOT)
+        if pull.returncode == 0:
+            push = _run(["git", "push", "origin", "main"], REPO_ROOT)
+        if push.returncode != 0:
+            return {"committed": True, "pushed": False, "error": f"git push 실패(로컬엔 커밋됨): {push.stderr.strip()}"}
+
+    return {"committed": True, "pushed": True, "error": None}
+
+
 def _load_state() -> dict:
     if not STATE_FILE.exists():
         return {}
@@ -99,11 +150,13 @@ def _update_backend_code_from_git() -> bool:
 
     pull = _run(["git", "pull", "origin", "main"], REPO_ROOT)
     if pull.returncode != 0:
-        # 관리자 페이지 업로드(admin.py::upload_data)는 backend/data/*.csv를 git
-        # 모르게 디스크에 직접 덮어쓰고 커밋은 안 하므로, 다음 pull이 "로컬 변경이
-        # merge로 덮어써질 것"이라며 매번 막히는 상태가 됨 — 업로드 쪽이 이미
-        # backend/data/backups/에 타임스탬프 백업을 남기니(admin.py::_backup)
-        # 데이터 유실 걱정 없이 stash로 치우고 재시도해도 안전함.
+        # 관리자 페이지 업로드(admin.py::upload_data)는 이제 commit_and_push_data_file로
+        # 커밋+푸시까지 시도하지만, 이 PC에 push 권한이 없거나 push가 실패하면 로컬에
+        # 커밋 안 된 변경이 남아있을 수 있음(또는 이 기능 추가 이전의 예전 업로드
+        # 잔여분) — 그러면 다음 pull이 "로컬 변경이 merge로 덮어써질 것"이라며 매번
+        # 막히는 상태가 됨. 업로드 쪽이 이미 backend/data/backups/에 타임스탬프
+        # 백업을 남기니(admin.py::_backup) 데이터 유실 걱정 없이 stash로 치우고
+        # 재시도해도 안전함.
         if "would be overwritten by merge" in pull.stderr:
             stash = _run(["git", "stash", "--include-untracked"], REPO_ROOT)
             if stash.returncode == 0:

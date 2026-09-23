@@ -197,12 +197,20 @@ async def upload_data(target: str, file: UploadFile, password: str = Form(...)):
     backup_name = _backup(dest_path)
     dest_path.write_bytes(content)
 
+    # 업로드된 파일을 git에도 커밋+푸시 시도 — 예전엔 이 PC 로컬 디스크에만
+    # 반영되고 git엔 전혀 안 남아서, 이 저장소(git)와 실제 서비스 데이터가
+    # 계속 벌어지는 문제가 있었음. push는 이 PC에 쓰기 권한이 있어야 성공하고,
+    # 실패해도 커밋은 로컬에 남아있어 데이터 유실은 없음 — 결과를 응답에 그대로
+    # 얹어서 관리자가 동기화 실패를 바로 알 수 있게 함.
+    commit_msg = f"data: {target} 관리자 업로드 ({file.filename or dest_path.name})"
+    git_result = await run_in_threadpool(deploy_service.commit_and_push_data_file, dest_path, commit_msg)
+
     if target in _NAVDATA_TARGETS:
         try:
             await run_in_threadpool(store.reload)
         except Exception as e:
             raise HTTPException(500, f"업로드된 파일을 반영하는 중 오류가 발생했습니다: {e}")
-        return {"ok": True, "target": target, "backup": backup_name, **_validate_navdata()}
+        return {"ok": True, "target": target, "backup": backup_name, "git": git_result, **_validate_navdata()}
 
     # target == "minima"
     try:
@@ -211,7 +219,7 @@ async def upload_data(target: str, file: UploadFile, password: str = Form(...)):
         raise HTTPException(500, f"업로드된 파일을 반영하는 중 오류가 발생했습니다: {e}")
     _, unresolved = parse_wx_minima_csv(dest_path.read_text(encoding="utf-8-sig"))
     return {
-        "ok": True, "target": target, "backup": backup_name,
+        "ok": True, "target": target, "backup": backup_name, "git": git_result,
         "resolved": len(get_minima_seed()), "unresolved_iata": unresolved,
     }
 

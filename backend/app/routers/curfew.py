@@ -13,8 +13,10 @@ from pathlib import Path
 from typing import Dict
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from ..admin_auth import check_password
+from ..services import deploy as deploy_service
 
 router = APIRouter()
 
@@ -119,7 +121,12 @@ async def upload_curfew(file: UploadFile = File(...), password: str = Form(...))
 
     _curfews = parsed
     _save_csv(_curfews)
-    return {'count': len(_curfews), 'curfews': list(_curfews.values())}
+    # 다른 데이터 업로드(admin.py::upload_data)와 동일하게 git 커밋+푸시 시도 —
+    # 실패해도(예: 이 PC에 push 권한 없음) 로컬 파일/커밋은 그대로라 유실 없음
+    git_result = await run_in_threadpool(
+        deploy_service.commit_and_push_data_file, _DATA_FILE, f"data: curfew 관리자 업로드 ({file.filename or _DATA_FILE.name})"
+    )
+    return {'count': len(_curfews), 'curfews': list(_curfews.values()), 'git': git_result}
 
 
 @router.delete("/")
